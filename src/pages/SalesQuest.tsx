@@ -66,7 +66,6 @@ type Screen = "home" | "badges" | "backup" | "settings" | "diagnostic";
 const XP_PER_LEVEL = 100;
 const API_ENDPOINT = "/api/sales-quest";
 const RETRY_DELAYS = [500, 1500, 3000];
-const LOCAL_STORAGE_KEY = "sales_quest_local_data_v2";
 const SETTINGS_KEY = "sales_quest_commission_settings_v2";
 const BONUS_KEY = "sales_quest_bonuses_v1";
 
@@ -428,10 +427,9 @@ interface DrawerProps {
   clerkUser: any;
   xp: number;
   level: number;
-  isLocalMode: boolean;
 }
 
-const Drawer: FC<DrawerProps> = ({ open, onClose, screen, onNavigate, clerkUser, xp, level, isLocalMode }) => {
+const Drawer: FC<DrawerProps> = ({ open, onClose, screen, onNavigate, clerkUser, xp, level }) => {
   const navItems: { id: Screen; label: string; color: string; icon: ReactNode }[] = [
     { id: "home", label: "Sales", color: C.cyan, icon: <TrendingUp size={14} /> },
     { id: "badges", label: "Badges", color: C.amber, icon: <Award size={14} /> },
@@ -477,12 +475,10 @@ const Drawer: FC<DrawerProps> = ({ open, onClose, screen, onNavigate, clerkUser,
         </nav>
         {/* Footer */}
         <div className="p-4 border-t space-y-3" style={{ borderColor: "rgba(127,19,236,0.1)" }}>
-          {!isLocalMode && (
-            <div className="flex items-center gap-3">
-              <UserButton afterSignOutUrl="/sales-quest" />
-              <span className="text-xs text-slate-500">Account settings</span>
-            </div>
-          )}
+          <div className="flex items-center gap-3">
+            <UserButton afterSignOutUrl="/sales-quest" />
+            <span className="text-xs text-slate-500">Account settings</span>
+          </div>
           <p className="text-xs text-slate-600 uppercase tracking-widest">Sales Quest v2.0</p>
         </div>
       </div>
@@ -868,7 +864,6 @@ export default function SalesQuest() {
   const { isLoaded: clerkLoaded, isSignedIn, getToken } = useAuth();
   const { user: clerkUser } = useUser();
   const isAuthenticated = isSignedIn ?? false;
-  const [isLocalMode, _setIsLocalMode] = useState(false);
   const [state, setState] = useState<GameState>(getEmptyState());
   const [screen, setScreen] = useState<Screen>("home");
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -913,7 +908,7 @@ export default function SalesQuest() {
     setCommissionSettings(settings);
     saveSettingsToStorage(settings);
     setShowOnboarding(false);
-    if (!isLocalMode && isSignedIn) {
+    if (isSignedIn) {
       try {
         const headers = await getAuthHeaders();
         await fetch(`${API_ENDPOINT}?action=save_settings`, { method: "POST", headers: { ...(headers as any), "Content-Type": "application/json" }, body: JSON.stringify(settings) });
@@ -944,7 +939,7 @@ export default function SalesQuest() {
     const updated = [...bonuses, full];
     setBonuses(updated);
     saveBonusesToStorage(updated);
-    if (!isLocalMode && isSignedIn) {
+    if (isSignedIn) {
       try {
         const headers = await getAuthHeaders();
         await fetch(`${API_ENDPOINT}?action=save_bonus`, { method: "POST", headers: { ...(headers as any), "Content-Type": "application/json" }, body: JSON.stringify(full) });
@@ -956,7 +951,7 @@ export default function SalesQuest() {
     const updated = bonuses.filter(b => b.id !== id);
     setBonuses(updated);
     saveBonusesToStorage(updated);
-    if (!isLocalMode && isSignedIn) {
+    if (isSignedIn) {
       try {
         const headers = await getAuthHeaders();
         await fetch(`${API_ENDPOINT}?action=delete_bonus`, { method: "POST", headers: { ...(headers as any), "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
@@ -968,46 +963,25 @@ export default function SalesQuest() {
 
   const handleAddSale = (saleInput: Omit<Sale, "id">) => {
     const fullSale: Sale = { ...saleInput, id: makeId(), commissionSnapshot: createSnapshot(commissionSettings) };
-    const nextSales = [...state.sales, fullSale];
-    if (isLocalMode) {
-      const ns = buildLocalStateFromSales(nextSales);
-      setState(ns);
-      try { localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(ns)); } catch {}
-    } else {
-      saveToCloud(nextSales, state.lastModifiedTime);
-    }
+    saveToCloud([...state.sales, fullSale], state.lastModifiedTime);
     setShowAddSale(false);
   };
 
   const handleUpdateSale = (updated: Sale | Omit<Sale, "id">) => {
     const fullSale = updated as Sale;
-    const nextSales = state.sales.map(s => s.id === fullSale.id ? fullSale : s);
-    if (isLocalMode) {
-      const ns = buildLocalStateFromSales(nextSales);
-      setState(ns);
-      try { localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(ns)); } catch {}
-    } else {
-      saveToCloud(nextSales, state.lastModifiedTime);
-    }
+    saveToCloud(state.sales.map(s => s.id === fullSale.id ? fullSale : s), state.lastModifiedTime);
     setEditingSale(null);
   };
 
   const deleteSale = (id: string) => {
-    const nextSales = state.sales.filter(s => s.id !== id);
-    if (isLocalMode) {
-      const ns = buildLocalStateFromSales(nextSales);
-      setState(ns);
-      try { localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(ns)); } catch {}
-    } else {
-      saveToCloud(nextSales, state.lastModifiedTime);
-    }
+    saveToCloud(state.sales.filter(s => s.id !== id), state.lastModifiedTime);
     setEditingSale(prev => prev?.id === id ? null : prev);
   };
 
   // ─── Cloud settings load (once on login) ───────────────────────────────────
 
   useEffect(() => {
-    if (isLocalMode || !isAuthenticated || !clerkLoaded || !clerkUser) return;
+    if (!isAuthenticated || !clerkLoaded || !clerkUser) return;
     const fetchSettings = async () => {
       try {
         const headers = await getAuthHeaders();
@@ -1021,12 +995,12 @@ export default function SalesQuest() {
       } catch {}
     };
     fetchSettings();
-  }, [isAuthenticated, isLocalMode, clerkLoaded, clerkUser, getAuthHeaders]);
+  }, [isAuthenticated, clerkLoaded, clerkUser, getAuthHeaders]);
 
   // ─── Cloud bonuses load (reloads on month change) ───────────────────────────
 
   useEffect(() => {
-    if (isLocalMode || !isAuthenticated || !clerkLoaded || !clerkUser || !selectedMonth) return;
+    if (!isAuthenticated || !clerkLoaded || !clerkUser || !selectedMonth) return;
     const fetchBonuses = async () => {
       try {
         const headers = await getAuthHeaders();
@@ -1037,12 +1011,12 @@ export default function SalesQuest() {
       } catch {}
     };
     fetchBonuses();
-  }, [isAuthenticated, isLocalMode, clerkLoaded, clerkUser, selectedMonth, currentMonth, getAuthHeaders]);
+  }, [isAuthenticated, clerkLoaded, clerkUser, selectedMonth, currentMonth, getAuthHeaders]);
 
   // ─── Month list ─────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    if (isLocalMode || !isAuthenticated || !clerkLoaded || !clerkUser) return;
+    if (!isAuthenticated || !clerkLoaded || !clerkUser) return;
     let cancelled = false;
     const controller = new AbortController();
     // Safety timeout: if list_months hangs, unblock the UI after 8s
@@ -1080,21 +1054,11 @@ export default function SalesQuest() {
     };
     fetchMonths();
     return () => { cancelled = true; controller.abort(); clearTimeout(safetyTimeout); };
-  }, [isAuthenticated, isLocalMode, clerkLoaded, clerkUser, getAuthHeaders]);
+  }, [isAuthenticated, clerkLoaded, clerkUser, getAuthHeaders]);
 
   // ─── Data load ──────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    if (isLocalMode) {
-      try {
-        const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          setState(buildLocalStateFromSales(parsed.sales || []));
-        }
-      } catch {}
-      setSaveStatus("saved"); setAvailableMonths([]); const cm = getCurrentMonth(); setCurrentMonth(cm); setSelectedMonth(cm); return;
-    }
     if (!selectedMonth || !isAuthenticated) return;
     const safetyTimeout = setTimeout(() => setSaveStatus(prev => prev === "loading" ? "error" : prev), 8000);
     const loadData = async (retry = 0) => {
@@ -1120,12 +1084,12 @@ export default function SalesQuest() {
       }
     };
     loadData(); return () => clearTimeout(safetyTimeout);
-  }, [selectedMonth, isAuthenticated, isLocalMode, getAuthHeaders, currentMonth]);
+  }, [selectedMonth, isAuthenticated, getAuthHeaders, currentMonth]);
 
   // ─── Visibility refetch — sync when app comes back into focus ────────────────
 
   useEffect(() => {
-    if (isLocalMode || !isAuthenticated || !currentMonth) return;
+    if (!isAuthenticated || !currentMonth) return;
     const handleVisibility = async () => {
       if (document.visibilityState !== "visible") return;
       if (!isSignedIn) return;
@@ -1144,12 +1108,12 @@ export default function SalesQuest() {
     };
     document.addEventListener("visibilitychange", handleVisibility);
     return () => document.removeEventListener("visibilitychange", handleVisibility);
-  }, [isLocalMode, isAuthenticated, currentMonth, getAuthHeaders]);
+  }, [isAuthenticated, currentMonth, getAuthHeaders]);
 
   // ─── Save (explicit, only called on user mutations) ─────────────────────────
 
   const saveToCloud = useCallback(async (sales: Sale[], currentLastModifiedTime?: number) => {
-    if (isLocalMode || isArchived) return;
+    if (isArchived) return;
     try {
       setSaveStatus("saving");
       const headers = await getAuthHeaders();
@@ -1167,7 +1131,7 @@ export default function SalesQuest() {
         fetchTotalCommission();
       } else setSaveStatus("error");
     } catch { setSaveStatus("error"); }
-  }, [isLocalMode, isArchived, getAuthHeaders]);
+  }, [isArchived, getAuthHeaders]);
 
   // ─── Total commission ───────────────────────────────────────────────────────
 
@@ -1190,7 +1154,6 @@ export default function SalesQuest() {
   // ─── Diagnostic ─────────────────────────────────────────────────────────────
 
   const runDiagnostic = async () => {
-    if (isLocalMode) { setDiagnosticResult({ localMode: true, salesCount: state.sales.length, lastModified: state.lastModifiedTime, timestamp: new Date().toISOString() }); return; }
     setDiagnosticResult({ loading: true });
     try {
       const token = await getToken();
@@ -1206,11 +1169,6 @@ export default function SalesQuest() {
 
   const exportData = async () => {
     try {
-      if (isLocalMode) {
-        const payload = { exportedAt: new Date().toISOString(), months: { [getCurrentMonth()]: state }, bonuses };
-        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-        const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `sales-quest-backup-${getLocalDateString()}.json`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); return;
-      }
       const headers = await getAuthHeaders();
       const res = await fetch(`${API_ENDPOINT}?action=list_months`, { headers });
       const { months } = await res.json();
@@ -1238,10 +1196,6 @@ export default function SalesQuest() {
       if (imported.bonuses) { setBonuses(imported.bonuses); saveBonusesToStorage(imported.bonuses); }
 
       const current = getCurrentMonth();
-      if (isLocalMode) {
-        const d = monthsData[current] as any;
-        if (d?.sales) { const ns = buildLocalStateFromSales(d.sales); setState(ns); try { localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(ns)); } catch {} alert(`Imported ${d.sales.length} sales into the current month.`); } return;
-      }
       const headers = await getAuthHeaders();
       const currentMonthData = monthsData[current] as any;
       if (!currentMonthData?.sales) {
@@ -1276,7 +1230,7 @@ export default function SalesQuest() {
 
   // ─── Early returns ──────────────────────────────────────────────────────────
 
-  if (!clerkLoaded && !isLocalMode) {
+  if (!clerkLoaded) {
     return (
       <div className="min-h-screen flex items-center justify-center relative" style={{ background: "#0a0614" }}>
         <Background />
@@ -1284,7 +1238,7 @@ export default function SalesQuest() {
       </div>
     );
   }
-  if (!isAuthenticated && !isLocalMode) {
+  if (!isAuthenticated) {
     return (
       <div className="min-h-screen flex items-center justify-center relative" style={{ background: "#0a0614" }}>
         <Background />
@@ -1336,7 +1290,7 @@ export default function SalesQuest() {
     <div className="min-h-screen relative overflow-x-hidden" style={{ background: "#0a0614" }}>
       <Background />
 
-      <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)} screen={screen} onNavigate={s => { setScreen(s); setDrawerOpen(false); if (s === "diagnostic") runDiagnostic(); }} clerkUser={clerkUser} xp={xp} level={level} isLocalMode={isLocalMode} />
+      <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)} screen={screen} onNavigate={s => { setScreen(s); setDrawerOpen(false); if (s === "diagnostic") runDiagnostic(); }} clerkUser={clerkUser} xp={xp} level={level} />
 
       <div className="relative z-10 min-h-screen flex flex-col max-w-md mx-auto px-4">
 
@@ -1594,7 +1548,7 @@ export default function SalesQuest() {
             <div className="p-4 rounded-xl" style={{ background: "#111020", border: "1px solid rgba(127,19,236,0.12)" }}>
               <p className="text-sm font-bold text-slate-100 mb-3">Sync status</p>
               {[
-                ["Mode", isLocalMode ? "Local (browser only)" : "Cloud sync"],
+                ["Mode", "Cloud sync"],
                 ["Status", saveStatus],
                 ["Sales", String(state.sales.length)],
                 ["Streak", `${state.streak || 0} days`],
@@ -1625,7 +1579,7 @@ export default function SalesQuest() {
 
             {[
               { label: "API status", value: diagnosticResult?.summary?.includes("✅") ? "Online" : diagnosticResult?.loading ? "Checking…" : "Unknown", ok: diagnosticResult?.summary?.includes("✅") },
-              { label: "Auth token", value: diagnosticResult?.tokenPrefix ? `Valid (${diagnosticResult.tokenPrefix.slice(0, 12)}…)` : isLocalMode ? "Local mode" : "Pending", ok: !!diagnosticResult?.tokenPrefix || isLocalMode },
+              { label: "Auth token", value: diagnosticResult?.tokenPrefix ? `Valid (${diagnosticResult.tokenPrefix.slice(0, 12)}…)` : "Pending", ok: !!diagnosticResult?.tokenPrefix },
               { label: "Sales logged", value: String(state.sales.length), ok: true },
               { label: "Settings saved", value: commissionSettings.configured ? "Yes" : "Not configured", ok: commissionSettings.configured },
               { label: "Storage (local)", value: `${Math.round(JSON.stringify(localStorage).length / 1024)} KB`, ok: true },
