@@ -877,17 +877,22 @@ export default function SalesQuest() {
 
   // ─── Auth / Settings / Data helpers ────────────────────────────────────────
 
+  // Keep getToken in a ref so getAuthHeaders doesn't change identity every render.
+  // getToken is a stable Clerk function but its reference changes each render,
+  // which would otherwise cascade into every useEffect that depends on getAuthHeaders.
+  const getTokenRef = useRef(getToken);
+  useEffect(() => { getTokenRef.current = getToken; });
+
   const getAuthHeaders = useCallback(async (): Promise<HeadersInit> => {
-    if (isLocalMode) return { Accept: "application/json" };
-    const headers: any = { Accept: "application/json" };
+    const headers: Record<string, string> = { Accept: "application/json" };
     if (isSignedIn) {
       try {
-        const token = await getToken();
+        const token = await getTokenRef.current();
         if (token) { headers.Authorization = `Bearer ${token}`; headers["X-Clerk-Token"] = token; }
       } catch (err) { console.error("Failed to get Clerk token:", err); }
     }
     return headers;
-  }, [isLocalMode, isSignedIn, getToken]);
+  }, [isSignedIn]);
 
   const handleSaveSettings = async (settings: CommissionSettings) => {
     const wasOnboarding = showOnboarding;
