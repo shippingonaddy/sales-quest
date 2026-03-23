@@ -1,0 +1,34 @@
+{
+  "name": "sales-quest-app",
+  "version": "1.0.0",
+  "description": "Sales Quest - Standalone Application",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run dev:server & bun run dev:client",
+    "dev:server": "bun run server/index.ts",
+    "dev:client": "bunx vite",
+    "build": "bunx tsc && bunx vite build",
+    "preview": "bunx vite preview",
+    "start": "NODE_ENV=production bun run server/index.ts"
+  },
+  "dependencies": {
+    "hono": "^4.6.14",
+    "zod": "^3.24.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "lucide-react": "^0.468.0",
+    "@clerk/clerk-react": "^5.21.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.17",
+    "@types/react-dom": "^18.3.5",
+    "@types/node": "^20.17.10",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.3",
+    "bun-types": "latest",
+    "tailwindcss": "^3.4.17",
+    "postcss": "^8.4.49",
+    "autoprefixer": "^10.4.20"
+  }
+}

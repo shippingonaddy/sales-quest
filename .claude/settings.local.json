@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /Users/arturogodoy/Documents/sales-quest-app -type f -name package.json -o -name README.md -o -name .env* -o -name tsconfig.json -o -name CLAUDE.md -o -name .cursorrules -o -name copilot-instructions.md)",
+      "Bash(find /Users/arturogodoy/Documents/sales-quest-app -name *.config.* -o -name .*rc*)",
+      "Bash(railway --version)",
+      "Bash(railway whoami:*)",
+      "Bash(railway status:*)",
+      "Bash(railway up:*)",
+      "Bash(railway service:*)",
+      "Bash(railway environment:*)",
+      "Bash(railway logs:*)",
+      "Bash(gh api:*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Read(//Users/arturogodoy/.claude/**)",
+      "WebSearch",
+      "Bash(git -C /Users/arturogodoy/Documents/sales-quest-app status)",
+      "Bash(git -C /Users/arturogodoy/Documents/sales-quest-app log --oneline -3)"
+    ]
+  }
+}
