@@ -386,8 +386,20 @@ function Background() {
       stars.forEach(s => { s.phase += s.speed * 55; const pulse = Math.sin(s.phase) * 0.35 + 0.65; const x = s.x * canvas.width, y = s.y * canvas.height; if (s.r > 0.9) { const halo = ctx.createRadialGradient(x, y, 0, x, y, s.r * 4); halo.addColorStop(0, `hsla(${s.hue}, 80%, 85%, ${0.12 * pulse})`); halo.addColorStop(1, "transparent"); ctx.fillStyle = halo; ctx.beginPath(); ctx.arc(x, y, s.r * 4, 0, Math.PI * 2); ctx.fill(); } ctx.beginPath(); ctx.arc(x, y, s.r * pulse, 0, Math.PI * 2); ctx.fillStyle = `hsla(${s.hue}, 75%, 88%, ${0.75 * pulse})`; ctx.fill(); });
       t++; raf = requestAnimationFrame(draw);
     };
+    const handleVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        cancelAnimationFrame(raf);
+      } else {
+        raf = requestAnimationFrame(draw);
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
     raf = requestAnimationFrame(draw);
-    return () => { cancelAnimationFrame(raf); window.removeEventListener("resize", resize); };
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", resize);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
   }, []);
   return <canvas ref={canvasRef} style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", background: "rgb(10, 6, 20)", zIndex: 0, pointerEvents: "none", display: "block" }} />;
 }
