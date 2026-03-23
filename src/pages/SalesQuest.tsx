@@ -1,10 +1,42 @@
-import { useCallback, useEffect, useRef, useState, type FC, type ReactNode, type TouchEvent } from "react";
+import { useCallback, useEffect, useRef, useState, useMemo, type FC, type ReactNode, type TouchEvent } from "react";
 import {
   Award, ChevronLeft, ChevronRight,
   Download, FileText, Flame, Pencil, Plus, Save,
   Settings, Star, TrendingUp, Upload, X, Zap,
 } from "lucide-react";
 import { useAuth, useUser, UserButton, RedirectToSignIn } from '@clerk/clerk-react';
+
+// ─── Toast ────────────────────────────────────────────────────────────────────
+
+type ToastVariant = "success" | "error" | "info";
+interface Toast { id: number; message: string; variant: ToastVariant; }
+
+function useToast() {
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const counter = useRef(0);
+  const show = useCallback((message: string, variant: ToastVariant = "info") => {
+    const id = ++counter.current;
+    setToasts(prev => [...prev, { id, message, variant }]);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3500);
+  }, []);
+  return { toasts, show };
+}
+
+const ToastContainer: FC<{ toasts: Toast[] }> = ({ toasts }) => (
+  <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] flex flex-col gap-2 w-full max-w-sm px-4 pointer-events-none">
+    {toasts.map(t => (
+      <div key={t.id} className="px-4 py-3 rounded-xl text-sm font-medium shadow-lg pointer-events-auto animate-in fade-in slide-in-from-top-2"
+        style={{
+          background: t.variant === "error" ? "rgba(239,68,68,0.15)" : t.variant === "success" ? "rgba(16,185,129,0.15)" : "rgba(127,19,236,0.15)",
+          border: `1px solid ${t.variant === "error" ? "rgba(239,68,68,0.4)" : t.variant === "success" ? "rgba(16,185,129,0.4)" : "rgba(127,19,236,0.4)"}`,
+          color: t.variant === "error" ? "#f87171" : t.variant === "success" ? "#34d399" : "#c4b5fd",
+          backdropFilter: "blur(12px)",
+        }}>
+        {t.message}
+      </div>
+    ))}
+  </div>
+);
 
 // ─── Interfaces ───────────────────────────────────────────────────────────────
 
@@ -881,6 +913,7 @@ export default function SalesQuest() {
   const [bonuses, setBonuses] = useState<Bonus[]>(loadBonusesFromStorage);
   const [totalCommissionAllMonths, setTotalCommissionAllMonths] = useState(0);
   const [newSale, setNewSale] = useState<Omit<Sale, "id">>({ date: getLocalDateString(), customer: "", stockNumber: "", year: "", make: "", model: "", downPayment: 0, frontGross: 0, backGross: 0, split: false, notes: "" });
+  const { toasts, show: showToast } = useToast();
 
   const makeId = () => { try { return crypto.randomUUID(); } catch { return `${Date.now()}_${Math.random().toString(16).slice(2)}`; } };
 
@@ -1122,7 +1155,7 @@ export default function SalesQuest() {
         headers: { ...(headers as any), "Content-Type": "application/json" },
         body: JSON.stringify({ sales, lastModifiedTime: currentLastModifiedTime }),
       });
-      if (res.status === 409) { setSaveStatus("conflict"); alert("Data conflict. Please refresh."); return; }
+      if (res.status === 409) { setSaveStatus("conflict"); showToast("Data conflict — please refresh to get the latest version.", "error"); return; }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const result = await res.json();
       if (result.success && result.data) {
@@ -1177,7 +1210,7 @@ export default function SalesQuest() {
       const payload = { exportedAt: new Date().toISOString(), months: allData, bonuses };
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `sales-quest-backup-${getLocalDateString()}.json`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-    } catch { alert("Failed to export data."); }
+    } catch { showToast("Failed to export data.", "error"); }
   };
 
   const importData = async (file: File) => {
@@ -1199,7 +1232,7 @@ export default function SalesQuest() {
       const headers = await getAuthHeaders();
       const currentMonthData = monthsData[current] as any;
       if (!currentMonthData?.sales) {
-        alert("This backup does not include sales for the current month.");
+        showToast("This backup does not include sales for the current month.", "error");
         return;
       }
 
@@ -1224,8 +1257,8 @@ export default function SalesQuest() {
       const skippedNote = skippedMonths.length > 0
         ? ` Skipped ${skippedMonths.length} archived month${skippedMonths.length === 1 ? "" : "s"} because the current API only accepts current-month imports.`
         : "";
-      alert(`Imported ${currentMonthData.sales.length} sales into ${formatMonth(current)}.${skippedNote}`);
-    } catch { alert("Failed to import file. Check the format."); }
+      showToast(`Imported ${currentMonthData.sales.length} sales into ${formatMonth(current)}.${skippedNote}`, "success");
+    } catch { showToast("Failed to import file. Check the format.", "error"); }
   };
 
   // ─── Early returns ──────────────────────────────────────────────────────────
@@ -1540,7 +1573,7 @@ export default function SalesQuest() {
             <div className="p-4 rounded-xl" style={{ background: "#111020", border: "1px solid rgba(127,19,236,0.15)" }}>
               <p className="text-sm font-bold text-slate-100 mb-1">PDF statement</p>
               <p className="text-xs text-slate-500 mb-4 leading-relaxed">Export a monthly commission summary for records.</p>
-              <button onClick={() => alert("PDF export coming soon.")} className="w-full flex items-center gap-2 py-2.5 px-4 rounded-xl text-sm font-medium" style={{ background: "rgba(0,242,255,0.07)", border: "1px solid rgba(0,242,255,0.3)", color: C.cyan }}>
+              <button onClick={() => showToast("PDF export coming soon.", "info")} className="w-full flex items-center gap-2 py-2.5 px-4 rounded-xl text-sm font-medium" style={{ background: "rgba(0,242,255,0.07)", border: "1px solid rgba(0,242,255,0.3)", color: C.cyan }}>
                 <FileText size={14} /> Export PDF — {formatMonth(selectedMonth || currentMonth)}
               </button>
             </div>
@@ -1611,7 +1644,7 @@ export default function SalesQuest() {
               </details>
             )}
 
-            <button onClick={() => { try { localStorage.clear(); } catch {} alert("Local cache cleared. Refresh to reload."); }} className="w-full mt-2 py-3 rounded-xl text-sm font-medium" style={{ background: "rgba(239,68,68,0.07)", border: "1px solid rgba(239,68,68,0.22)", color: "rgba(239,68,68,0.7)" }}>
+            <button onClick={() => { try { localStorage.clear(); } catch {} showToast("Local cache cleared. Refresh to reload.", "info"); }} className="w-full mt-2 py-3 rounded-xl text-sm font-medium" style={{ background: "rgba(239,68,68,0.07)", border: "1px solid rgba(239,68,68,0.22)", color: "rgba(239,68,68,0.7)" }}>
               Clear local cache
             </button>
           </div>
@@ -1628,6 +1661,7 @@ export default function SalesQuest() {
       {showAddBonus && (
         <AddBonusModal isOpen={showAddBonus} onClose={() => setShowAddBonus(false)} onSave={handleAddBonus} />
       )}
+      <ToastContainer toasts={toasts} />
     </div>
   );
 }
