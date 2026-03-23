@@ -1294,6 +1294,27 @@ export default function SalesQuest() {
     );
   }
 
+  // ─── Stable initialData for edit modal ────────────────────────────────────
+  // Memoized so the object reference doesn't change on unrelated parent renders,
+  // preventing the SaleModal useEffect from resetting the form mid-edit.
+
+  const editingInitialData = useMemo<Omit<Sale, "id">>(() => {
+    if (!editingSale) return newSale;
+    return {
+      date: editingSale.date,
+      customer: editingSale.customer,
+      stockNumber: editingSale.stockNumber || "",
+      year: editingSale.year || "",
+      make: editingSale.make || "",
+      model: editingSale.model || "",
+      downPayment: editingSale.downPayment,
+      frontGross: editingSale.frontGross || 0,
+      backGross: editingSale.backGross || 0,
+      split: editingSale.split,
+      notes: editingSale.notes,
+    };
+  }, [editingSale, newSale]);
+
   // ─── Computed values ────────────────────────────────────────────────────────
 
   const xp = calculateXP(state);
@@ -1648,7 +1669,7 @@ export default function SalesQuest() {
         <SaleModal mode="add" sale={null} initialData={newSale} isOpen={showAddSale} onClose={() => setShowAddSale(false)} onSave={saleInput => handleAddSale(saleInput as Omit<Sale, "id">)} settings={commissionSettings} />
       )}
       {editingSale && (
-        <SaleModal mode="edit" sale={editingSale} initialData={{ date: editingSale.date, customer: editingSale.customer, stockNumber: editingSale.stockNumber || "", year: editingSale.year || "", make: editingSale.make || "", model: editingSale.model || "", downPayment: editingSale.downPayment, frontGross: editingSale.frontGross || 0, backGross: editingSale.backGross || 0, split: editingSale.split, notes: editingSale.notes }} isOpen={!!editingSale} onClose={() => setEditingSale(null)} onSave={saleInput => handleUpdateSale(saleInput)} onDelete={deleteSale} settings={commissionSettings} />
+        <SaleModal mode="edit" sale={editingSale} initialData={editingInitialData} isOpen={!!editingSale} onClose={() => setEditingSale(null)} onSave={saleInput => handleUpdateSale(saleInput)} onDelete={deleteSale} settings={commissionSettings} />
       )}
       {showAddBonus && (
         <AddBonusModal isOpen={showAddBonus} onClose={() => setShowAddBonus(false)} onSave={handleAddBonus} />
