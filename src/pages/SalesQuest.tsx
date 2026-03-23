@@ -317,19 +317,33 @@ const groupSalesByDate = (sales: Sale[]): { label: string; date: string; sales: 
 
 // ─── Glassmorphism Card Styles ────────────────────────────────────────────────
 
-const glassCard = (hex: string, alpha = 0.07) => ({
-  background: `rgba(${hexToRgb(hex)}, ${alpha})`,
-  border: `1px solid rgba(${hexToRgb(hex)}, 0.45)`,
-  boxShadow: `0 0 18px rgba(${hexToRgb(hex)}, 0.18), inset 0 1px 0 rgba(${hexToRgb(hex)}, 0.12)`,
-  borderRadius: 14,
-});
-
+const _hexRgbCache = new Map<string, string>();
 const hexToRgb = (hex: string): string => {
+  const cached = _hexRgbCache.get(hex);
+  if (cached) return cached;
   const r = parseInt(hex.slice(1, 3), 16);
   const g = parseInt(hex.slice(3, 5), 16);
   const b = parseInt(hex.slice(5, 7), 16);
-  return `${r}, ${g}, ${b}`;
+  const result = `${r}, ${g}, ${b}`;
+  _hexRgbCache.set(hex, result);
+  return result;
 };
+
+// Pre-computed RGB strings — avoids repeated parseInt on every render
+const RGB = Object.fromEntries(Object.entries(C).map(([k, v]) => [k, hexToRgb(v)])) as Record<keyof typeof C, string>;
+
+const glassCard = (hex: string, alpha = 0.07) => {
+  const rgb = hexToRgb(hex);
+  return {
+    background: `rgba(${rgb}, ${alpha})`,
+    border: `1px solid rgba(${rgb}, 0.45)`,
+    boxShadow: `0 0 18px rgba(${rgb}, 0.18), inset 0 1px 0 rgba(${rgb}, 0.12)`,
+    borderRadius: 14,
+  };
+};
+
+// Pre-computed glass styles for each token color — avoids recalculating on every render
+const GLASS = Object.fromEntries(Object.entries(C).map(([k, v]) => [k, glassCard(v)])) as Record<keyof typeof C, ReturnType<typeof glassCard>>;
 
 // ─── Background ──────────────────────────────────────────────────────────────
 
@@ -1286,8 +1300,6 @@ export default function SalesQuest() {
 
   // ─── Render ─────────────────────────────────────────────────────────────────
 
-  const glassStyle = (color: string) => glassCard(color);
-
   return (
     <div className="min-h-screen relative overflow-x-hidden" style={{ background: "#0a0614" }}>
       <Background />
@@ -1331,34 +1343,34 @@ export default function SalesQuest() {
             <p className="text-[9px] font-medium uppercase tracking-widest text-slate-500 mb-2">Earnings</p>
             <div className="grid grid-cols-2 gap-2 mb-2">
               {/* Hero: this month + pay period */}
-              <div className="col-span-2 flex items-center justify-between p-4" style={{ ...glassStyle(C.cyan), minHeight: 82 }}>
+              <div className="col-span-2 flex items-center justify-between p-4" style={{ ...GLASS.cyan, minHeight: 82 }}>
                 <div>
-                  <p className="text-[9px] font-medium uppercase tracking-widest mb-1" style={{ color: `rgba(${hexToRgb(C.cyan)}, 0.65)` }}>This month</p>
+                  <p className="text-[9px] font-medium uppercase tracking-widest mb-1" style={{ color: `rgba(${RGB.cyan}, 0.65)` }}>This month</p>
                   <p className="text-2xl font-bold text-slate-50">${(revenue + monthBonusTotal).toFixed(0)}</p>
-                  <span className="text-[8px] uppercase tracking-wide px-1.5 py-0.5 rounded-full mt-1 inline-block" style={{ background: `rgba(${hexToRgb(C.cyan)}, 0.12)`, color: C.cyan }}>Commission</span>
+                  <span className="text-[8px] uppercase tracking-wide px-1.5 py-0.5 rounded-full mt-1 inline-block" style={{ background: `rgba(${RGB.cyan}, 0.12)`, color: C.cyan }}>Commission</span>
                 </div>
                 <div className="text-right">
-                  <p className="text-[9px] font-medium uppercase tracking-widest mb-1" style={{ color: `rgba(${hexToRgb(C.cyan)}, 0.6)` }}>Pay period</p>
+                  <p className="text-[9px] font-medium uppercase tracking-widest mb-1" style={{ color: `rgba(${RGB.cyan}, 0.6)` }}>Pay period</p>
                   <p className="text-lg font-bold text-slate-50">${payPeriodRevenue.toFixed(0)}</p>
-                  <span className="text-[8px] uppercase tracking-wide px-1.5 py-0.5 rounded-full mt-1 inline-block" style={{ background: `rgba(${hexToRgb(C.violet)}, 0.15)`, color: C.violet }}>{payPeriod.label}</span>
+                  <span className="text-[8px] uppercase tracking-wide px-1.5 py-0.5 rounded-full mt-1 inline-block" style={{ background: `rgba(${RGB.violet}, 0.15)`, color: C.violet }}>{payPeriod.label}</span>
                 </div>
               </div>
 
               {/* All-time */}
-              <div className="p-3 flex flex-col justify-between" style={{ ...glassStyle(C.pink), minHeight: 80 }}>
-                <p className="text-[9px] font-medium uppercase tracking-widest" style={{ color: `rgba(${hexToRgb(C.pink)}, 0.65)` }}>All-time</p>
+              <div className="p-3 flex flex-col justify-between" style={{ ...GLASS.pink, minHeight: 80 }}>
+                <p className="text-[9px] font-medium uppercase tracking-widest" style={{ color: `rgba(${RGB.pink}, 0.65)` }}>All-time</p>
                 <div>
                   <p className="text-lg font-bold text-slate-50">${totalCommissionAllMonths.toFixed(0)}</p>
-                  <span className="text-[8px] uppercase tracking-wide px-1.5 py-0.5 rounded-full mt-1 inline-block" style={{ background: `rgba(${hexToRgb(C.pink)}, 0.12)`, color: C.pink }}>All months</span>
+                  <span className="text-[8px] uppercase tracking-wide px-1.5 py-0.5 rounded-full mt-1 inline-block" style={{ background: `rgba(${RGB.pink}, 0.12)`, color: C.pink }}>All months</span>
                 </div>
               </div>
 
               {/* Bonuses */}
-              <div className="p-3 flex flex-col justify-between" style={{ ...glassStyle(C.amber), minHeight: 80 }}>
-                <p className="text-[9px] font-medium uppercase tracking-widest" style={{ color: `rgba(${hexToRgb(C.amber)}, 0.65)` }}>Bonuses</p>
+              <div className="p-3 flex flex-col justify-between" style={{ ...GLASS.amber, minHeight: 80 }}>
+                <p className="text-[9px] font-medium uppercase tracking-widest" style={{ color: `rgba(${RGB.amber}, 0.65)` }}>Bonuses</p>
                 <div>
                   <p className="text-lg font-bold text-slate-50">${monthBonusTotal.toFixed(0)}</p>
-                  <span className="text-[8px] uppercase tracking-wide px-1.5 py-0.5 rounded-full mt-1 inline-block" style={{ background: `rgba(${hexToRgb(C.amber)}, 0.12)`, color: C.amber }}>This month</span>
+                  <span className="text-[8px] uppercase tracking-wide px-1.5 py-0.5 rounded-full mt-1 inline-block" style={{ background: `rgba(${RGB.amber}, 0.12)`, color: C.amber }}>This month</span>
                 </div>
               </div>
             </div>
@@ -1366,30 +1378,30 @@ export default function SalesQuest() {
             {/* ─ Performance section ─ */}
             <p className="text-[9px] font-medium uppercase tracking-widest text-slate-500 mb-2 mt-4">Performance</p>
             <div className="grid grid-cols-2 gap-2 mb-2">
-              <div className="p-3 flex flex-col justify-between" style={{ ...glassStyle(C.violet), minHeight: 80 }}>
-                <p className="text-[9px] font-medium uppercase tracking-widest" style={{ color: `rgba(${hexToRgb(C.violet)}, 0.65)` }}>Total sales</p>
+              <div className="p-3 flex flex-col justify-between" style={{ ...GLASS.violet, minHeight: 80 }}>
+                <p className="text-[9px] font-medium uppercase tracking-widest" style={{ color: `rgba(${RGB.violet}, 0.65)` }}>Total sales</p>
                 <div>
                   <p className="text-2xl font-bold text-slate-50">{state.sales.length}</p>
-                  <p className="text-[9px] uppercase tracking-wide mt-1" style={{ color: `rgba(${hexToRgb(C.violet)}, 0.5)` }}>Units this month</p>
+                  <p className="text-[9px] uppercase tracking-wide mt-1" style={{ color: `rgba(${RGB.violet}, 0.5)` }}>Units this month</p>
                 </div>
               </div>
-              <div className="p-3 flex flex-col justify-between" style={{ ...glassStyle(C.orange), minHeight: 80 }}>
-                <p className="text-[9px] font-medium uppercase tracking-widest" style={{ color: `rgba(${hexToRgb(C.orange)}, 0.65)` }}>Streak</p>
+              <div className="p-3 flex flex-col justify-between" style={{ ...GLASS.orange, minHeight: 80 }}>
+                <p className="text-[9px] font-medium uppercase tracking-widest" style={{ color: `rgba(${RGB.orange}, 0.65)` }}>Streak</p>
                 <div>
                   <p className="text-2xl font-bold text-slate-50">{state.streak || 0}</p>
-                  <p className="text-[9px] uppercase tracking-wide mt-1" style={{ color: `rgba(${hexToRgb(C.orange)}, 0.5)` }}>Days active</p>
+                  <p className="text-[9px] uppercase tracking-wide mt-1" style={{ color: `rgba(${RGB.orange}, 0.5)` }}>Days active</p>
                 </div>
               </div>
 
               {/* XP bar */}
-              <div className="col-span-2 p-3" style={{ ...glassStyle(C.purple), minHeight: 60, justifyContent: "center", display: "flex", flexDirection: "column" }}>
+              <div className="col-span-2 p-3" style={{ ...GLASS.purple, minHeight: 60, justifyContent: "center", display: "flex", flexDirection: "column" }}>
                 <div className="flex justify-between items-baseline mb-1.5">
-                  <p className="text-[9px] font-medium uppercase tracking-widest" style={{ color: `rgba(${hexToRgb(C.violet)}, 0.65)` }}>
+                  <p className="text-[9px] font-medium uppercase tracking-widest" style={{ color: `rgba(${RGB.violet}, 0.65)` }}>
                     <span className="text-slate-100 font-bold text-xs">Level {level}</span> Voyager — {xp} XP
                   </p>
-                  <span className="text-[8px]" style={{ color: `rgba(${hexToRgb(C.violet)}, 0.4)` }}>{xpRemaining} to lvl {level + 1}</span>
+                  <span className="text-[8px]" style={{ color: `rgba(${RGB.violet}, 0.4)` }}>{xpRemaining} to lvl {level + 1}</span>
                 </div>
-                <div className="w-full rounded-full overflow-hidden" style={{ height: 4, background: `rgba(${hexToRgb(C.purple)}, 0.15)` }}>
+                <div className="w-full rounded-full overflow-hidden" style={{ height: 4, background: `rgba(${RGB.purple}, 0.15)` }}>
                   <div className="h-full rounded-full" style={{ width: `${(xpProgress / XP_PER_LEVEL) * 100}%`, background: C.purple }} />
                 </div>
               </div>
@@ -1415,7 +1427,7 @@ export default function SalesQuest() {
               </div>
               <div className="text-right">
                 <p className="text-base font-bold" style={{ color: C.cyan }}>${revenue.toFixed(0)}</p>
-                <p className="text-[9px] uppercase tracking-wide" style={{ color: `rgba(${hexToRgb(C.cyan)}, 0.45)` }}>Commission</p>
+                <p className="text-[9px] uppercase tracking-wide" style={{ color: `rgba(${RGB.cyan}, 0.45)` }}>Commission</p>
               </div>
             </div>
 
@@ -1454,7 +1466,7 @@ export default function SalesQuest() {
                   <div key={bonus.id} className="flex items-center gap-3 pl-3 pr-3 py-3 mb-2 relative" style={{ background: "#111020", border: "1px solid rgba(127,19,236,0.12)", borderRadius: 12, borderLeft: `2px solid ${C.amber}` }}>
                     <div className="flex-1">
                       <p className="text-sm font-medium text-slate-100">{bonus.label}</p>
-                      <p className="text-[9px] uppercase tracking-wide mt-0.5" style={{ color: `rgba(${hexToRgb(C.amber)}, 0.45)` }}>{bonus.date}</p>
+                      <p className="text-[9px] uppercase tracking-wide mt-0.5" style={{ color: `rgba(${RGB.amber}, 0.45)` }}>{bonus.date}</p>
                     </div>
                     <p className="text-base font-bold" style={{ color: C.amber }}>${bonus.amount.toFixed(0)}</p>
                     {!isArchived && (
