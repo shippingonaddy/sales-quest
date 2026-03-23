@@ -9,7 +9,7 @@ const app = new Hono()
 app.use('/*', cors({
   origin: process.env.FRONTEND_URL || '*',
   allowMethods: ['GET', 'POST', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Clerk-Token'],
+  allowHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Clerk-Token', 'X-Timezone'],
   credentials: true,
 }))
 
@@ -94,9 +94,17 @@ async function authMiddleware(c: any): Promise<Response | void> {
 
 const BASE_DATA_DIR = process.env.DATA_DIR || '/data/sales-quest';
 
-function getChicagoDateParts(date = new Date()): { year: string; month: string; day: string } {
+const FALLBACK_TZ = 'America/Chicago';
+
+function resolveTimezone(raw: string | null | undefined): string {
+  if (!raw) return FALLBACK_TZ;
+  try { Intl.DateTimeFormat(undefined, { timeZone: raw }); return raw; }
+  catch { return FALLBACK_TZ; }
+}
+
+function getUserDateParts(date: Date, tz: string): { year: string; month: string; day: string } {
   const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Chicago',
+    timeZone: tz,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -105,13 +113,13 @@ function getChicagoDateParts(date = new Date()): { year: string; month: string; 
   return { year: map.year, month: map.month, day: map.day };
 }
 
-function getCurrentMonth(): string {
-  const { year, month } = getChicagoDateParts();
+function getCurrentMonth(tz: string): string {
+  const { year, month } = getUserDateParts(new Date(), tz);
   return `${year}-${month}`;
 }
 
-function formatDate(date = new Date()): string {
-  const { year, month, day } = getChicagoDateParts(date);
+function formatDate(date: Date, tz: string): string {
+  const { year, month, day } = getUserDateParts(date, tz);
   return `${year}-${month}-${day}`;
 }
 
@@ -248,7 +256,7 @@ const getPrevWorkDay = (date: Date): Date => {
   return prev;
 };
 
-const calculateStreak = async (data: MonthlyData, userId: string): Promise<number> => {
+const calculateStreak = async (data: MonthlyData, userId: string, tz: string): Promise<number> => {
   const allDates = new Set<string>();
   const loadMonthData = (md: MonthlyData) => md.sales.forEach(s => allDates.add(s.date));
   loadMonthData(data);
@@ -266,12 +274,12 @@ const calculateStreak = async (data: MonthlyData, userId: string): Promise<numbe
 
   if (allDates.size === 0) return 0;
 
-  const todayStr = formatDate();
+  const todayStr = formatDate(new Date(), tz);
   let currentDay = new Date();
 
   if (!allDates.has(todayStr)) {
     const yesterday = getPrevWorkDay(currentDay);
-    const yesterdayStr = formatDate(yesterday);
+    const yesterdayStr = formatDate(yesterday, tz);
     if (!allDates.has(yesterdayStr)) return 0;
     currentDay = yesterday;
   }
@@ -280,7 +288,7 @@ const calculateStreak = async (data: MonthlyData, userId: string): Promise<numbe
   let iterations = 0;
   while (iterations < 365) {
     iterations++;
-    const dayStr = formatDate(currentDay);
+    const dayStr = formatDate(currentDay, tz);
     if (allDates.has(dayStr)) { streak++; currentDay = getPrevWorkDay(currentDay); }
     else if (!isWorkDay(currentDay)) { currentDay.setDate(currentDay.getDate() - 1); }
     else break;
@@ -294,12 +302,12 @@ async function atomicWrite(filePath: string, content: string): Promise<void> {
   await fs.rename(tmpPath, filePath);
 }
 
-async function archiveIfNeeded(userId: string): Promise<void> {
+async function archiveIfNeeded(userId: string, tz: string): Promise<void> {
   try {
     const currentPath = getCurrentDataPath(userId);
     const currentData = await fs.readFile(currentPath, "utf-8");
     const data: MonthlyData = JSON.parse(currentData);
-    const currentMonth = getCurrentMonth();
+    const currentMonth = getCurrentMonth(tz);
 
     if (data.month !== currentMonth) {
       const archivePath = getArchivePath(userId, data.month);
@@ -315,7 +323,7 @@ async function archiveIfNeeded(userId: string): Promise<void> {
 
       const newData: MonthlyData = {
         schemaVersion: 1, month: currentMonth, sales: [],
-        lastActiveDate: formatDate(), streak: 0, lastModifiedTime: Date.now(),
+        lastActiveDate: formatDate(new Date(), tz), streak: 0, lastModifiedTime: Date.now(),
       };
       await atomicWrite(currentPath, JSON.stringify(newData, null, 2));
     }
@@ -331,12 +339,13 @@ app.get('/', async (c) => {
   const userId = (c as any).get("userId") as string;
   if (!userId || typeof userId !== 'string') return c.json({ success: false, error: "Invalid user ID" }, 500);
 
+  const tz = resolveTimezone(c.req.header('X-Timezone'));
   await ensureUserDirsOnce(userId);
-  await archiveIfNeeded(userId);
+  await archiveIfNeeded(userId, tz);
 
   const action = c.req.query("action");
   const rawMonth = c.req.query("month");
-  const currentMonth = getCurrentMonth();
+  const currentMonth = getCurrentMonth(tz);
 
   let requestedMonth: string | undefined;
   if (rawMonth) {
@@ -419,7 +428,7 @@ app.get('/', async (c) => {
     monthData = migrateData(monthData);
 
     if (!isArchived) {
-      monthData.streak = await calculateStreak(monthData, userId);
+      monthData.streak = await calculateStreak(monthData, userId, tz);
     }
 
     return c.json({ success: true, data: monthData, isArchived, currentMonth });
@@ -427,7 +436,7 @@ app.get('/', async (c) => {
     if (isArchived) return c.json({ success: false, error: "Month not found", currentMonth }, 404);
     const emptyData: MonthlyData = {
       schemaVersion: 1, month: currentMonth, sales: [],
-      lastActiveDate: formatDate(), streak: 0, lastModifiedTime: Date.now(),
+      lastActiveDate: formatDate(new Date(), tz), streak: 0, lastModifiedTime: Date.now(),
     };
     await atomicWrite(getCurrentDataPath(userId), JSON.stringify(emptyData, null, 2));
     return c.json({ success: true, data: emptyData, isArchived: false, currentMonth });
@@ -441,10 +450,11 @@ app.post('/', async (c) => {
   const userId = (c as any).get("userId") as string;
   if (!userId || typeof userId !== 'string') return c.json({ success: false, error: "Invalid user ID" }, 500);
 
+  const tz = resolveTimezone(c.req.header('X-Timezone'));
   await ensureUserDirsOnce(userId);
 
   const action = c.req.query("action");
-  const currentMonth = getCurrentMonth();
+  const currentMonth = getCurrentMonth(tz);
 
   if (action === "save_settings") {
     let body;
@@ -537,11 +547,11 @@ app.post('/', async (c) => {
     schemaVersion: 1,
     month: currentMonth,
     sales: validation.data.sales,
-    lastActiveDate: formatDate(),
+    lastActiveDate: formatDate(new Date(), tz),
     lastModifiedTime: Date.now(),
   };
 
-  data.streak = await calculateStreak(data, userId);
+  data.streak = await calculateStreak(data, userId, tz);
   await atomicWrite(currentPath, JSON.stringify(data, null, 2));
   return c.json({ success: true, data, isArchived: false, currentMonth });
 });
