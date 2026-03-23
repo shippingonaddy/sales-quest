@@ -1043,32 +1043,43 @@ export default function SalesQuest() {
 
   useEffect(() => {
     if (isLocalMode || !isAuthenticated || !clerkLoaded || !clerkUser) return;
+    let cancelled = false;
+    const controller = new AbortController();
+    // Safety timeout: if list_months hangs, unblock the UI after 8s
+    const safetyTimeout = setTimeout(() => {
+      if (!cancelled) { controller.abort(); setSaveStatus("error"); }
+    }, 8000);
+
     const fetchMonths = async (retry = 0) => {
       try {
         setSaveStatus("loading");
         const headers = await getAuthHeaders();
-        const res = await fetch(`${API_ENDPOINT}?action=list_months`, { headers });
+        const res = await fetch(`${API_ENDPOINT}?action=list_months`, { headers, signal: controller.signal });
+        if (cancelled) return;
         if (!res.ok) {
           if (res.status === 401 || res.status === 403) { setSaveStatus("error"); return; }
-          if (retry < RETRY_DELAYS.length) { await new Promise(r => setTimeout(r, RETRY_DELAYS[retry])); return fetchMonths(retry + 1); }
+          if (retry < RETRY_DELAYS.length) { await new Promise(r => setTimeout(r, RETRY_DELAYS[retry])); if (!cancelled) return fetchMonths(retry + 1); return; }
           setSaveStatus("error"); return;
         }
         const result = await res.json();
+        if (cancelled) return;
         if (result.success) {
           setAvailableMonths(result.months || []);
           setCurrentMonth(result.currentMonth);
           setSelectedMonth(result.currentMonth);
           setSaveStatus("saved");
         } else {
-          if (retry < RETRY_DELAYS.length) { await new Promise(r => setTimeout(r, RETRY_DELAYS[retry])); return fetchMonths(retry + 1); }
+          if (retry < RETRY_DELAYS.length) { await new Promise(r => setTimeout(r, RETRY_DELAYS[retry])); if (!cancelled) return fetchMonths(retry + 1); return; }
           setSaveStatus("error");
         }
-      } catch {
-        if (retry < RETRY_DELAYS.length) { await new Promise(r => setTimeout(r, RETRY_DELAYS[retry])); return fetchMonths(retry + 1); }
+      } catch (err: any) {
+        if (cancelled || err?.name === "AbortError") return;
+        if (retry < RETRY_DELAYS.length) { await new Promise(r => setTimeout(r, RETRY_DELAYS[retry])); if (!cancelled) return fetchMonths(retry + 1); return; }
         setSaveStatus("error");
       }
     };
     fetchMonths();
+    return () => { cancelled = true; controller.abort(); clearTimeout(safetyTimeout); };
   }, [isAuthenticated, isLocalMode, clerkLoaded, clerkUser, getAuthHeaders]);
 
   // ─── Data load ──────────────────────────────────────────────────────────────
