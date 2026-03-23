@@ -370,6 +370,46 @@ app.get('/', async (c) => {
     return c.json({ success: true, months, currentMonth });
   }
 
+  if (action === "all_time_total") {
+    // Load settings for commission calculation
+    let settings: any = {};
+    try {
+      settings = JSON.parse(await fs.readFile(join(getUserDataDir(userId), "settings.json"), "utf-8"));
+    } catch {}
+
+    const computeCommission = (sale: Sale, cfg: any): number => {
+      const snap = sale.commissionSnapshot ?? cfg;
+      let base = 0;
+      if (snap.type === "flat") base = snap.flatAmount ?? 0;
+      else if (snap.type === "flat_plus_down") base = (snap.flatBase ?? 0) + (sale.downPayment || 0) * ((snap.downPercent ?? 0) / 100);
+      else if (snap.type === "front_back_percent") base = (sale.frontGross || 0) * ((snap.frontendPercent ?? 0) / 100) + (sale.backGross || 0) * ((snap.backendPercent ?? 0) / 100);
+      return sale.split ? base / 2 : base;
+    };
+
+    let total = 0;
+
+    // Current month
+    try {
+      const data: MonthlyData = JSON.parse(await fs.readFile(getCurrentDataPath(userId), "utf-8"));
+      total += data.sales.reduce((sum, s) => sum + computeCommission(s, settings), 0);
+    } catch {}
+
+    // All archived months
+    try {
+      const archiveDir = join(getUserDataDir(userId), "archive");
+      const files = (await fs.readdir(archiveDir)).filter(f => f.endsWith('.json'));
+      await Promise.all(files.map(async (file) => {
+        try {
+          const data: MonthlyData = JSON.parse(await fs.readFile(join(archiveDir, file), "utf-8"));
+          const monthTotal = data.sales.reduce((sum, s) => sum + computeCommission(s, settings), 0);
+          total += monthTotal;
+        } catch {}
+      }));
+    } catch {}
+
+    return c.json({ success: true, total });
+  }
+
   const isArchived = !!(requestedMonth && requestedMonth !== currentMonth);
   const dataPath = isArchived ? getArchivePath(userId, requestedMonth!) : getCurrentDataPath(userId);
 

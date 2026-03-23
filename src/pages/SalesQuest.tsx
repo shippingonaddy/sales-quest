@@ -1134,45 +1134,28 @@ export default function SalesQuest() {
       if (result.success && result.data) {
         setState(result.data);
         setSaveStatus("saved");
-        calculateTotalCommission().then(setTotalCommissionAllMonths);
+        fetchTotalCommission();
       } else setSaveStatus("error");
     } catch { setSaveStatus("error"); }
   }, [isLocalMode, isArchived, getAuthHeaders]);
 
   // ─── Total commission ───────────────────────────────────────────────────────
 
-  const calculateTotalCommission = useCallback(async (): Promise<number> => {
-    const allBonusesTotal = bonuses.reduce((total, bonus) => total + bonus.amount, 0);
-    if (isLocalMode) return calculateRevenue(state.sales, commissionSettings) + allBonusesTotal;
-    if (!isSignedIn) return allBonusesTotal;
-
+  const fetchTotalCommission = useCallback(async (): Promise<void> => {
+    if (!isSignedIn) return;
+    const allBonusesTotal = bonuses.reduce((sum, b) => sum + b.amount, 0);
     try {
       const headers = await getAuthHeaders();
-      const mRes = await fetch(`${API_ENDPOINT}?action=list_months`, { headers });
-      const mResult = await mRes.json();
-      if (mResult.success && Array.isArray(mResult.months)) {
-        const monthResults = await Promise.all(
-          mResult.months.map(async (month: string) => {
-            const url = month === currentMonth ? API_ENDPOINT : `${API_ENDPOINT}?month=${month}`;
-            const response = await fetch(url, { headers });
-            const result = await response.json();
-            return result.success && result.data?.sales
-              ? calculateRevenue(result.data.sales, commissionSettings)
-              : 0;
-          })
-        );
-        return monthResults.reduce((sum: number, value: number) => sum + value, 0) + allBonusesTotal;
-      }
+      const res = await fetch(`${API_ENDPOINT}?action=all_time_total`, { headers });
+      const result = await res.json();
+      if (result.success) setTotalCommissionAllMonths(result.total + allBonusesTotal);
     } catch {}
-
-    return allBonusesTotal;
-  }, [bonuses, commissionSettings, currentMonth, getAuthHeaders, isLocalMode, state.sales]);
+  }, [bonuses, getAuthHeaders, isSignedIn]);
 
   useEffect(() => {
-    if (!isAuthenticated && !isLocalMode) return;
-    if (!isLocalMode && (!clerkLoaded || !clerkUser)) return;
-    calculateTotalCommission().then(setTotalCommissionAllMonths);
-  }, [isAuthenticated, isLocalMode, clerkLoaded, clerkUser, calculateTotalCommission]);
+    if (!isAuthenticated || !clerkLoaded || !clerkUser) return;
+    fetchTotalCommission();
+  }, [isAuthenticated, clerkLoaded, clerkUser, fetchTotalCommission]);
 
   // ─── Diagnostic ─────────────────────────────────────────────────────────────
 
