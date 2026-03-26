@@ -2,6 +2,39 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+---
+
+## 🚨 EMERGENCY GUARDRAILS — READ FIRST EVERY SESSION
+
+These rules exist because a full working day was lost on March 26 2026. Follow them without exception.
+
+### If the app is broken in production (black screen, error, blank page):
+1. Check Railway logs via MCP FIRST — `mcp__railway__get-logs`
+2. Check Railway variables via MCP — `mcp__railway__list-variables`
+3. Check if `bun.lock` is committed — `git ls-files bun.lock`
+4. Check if `VITE_CLERK_PUBLISHABLE_KEY` is set correctly in Railway (not a placeholder)
+5. Do NOT touch any code until you know the exact cause
+6. Do NOT make more than one change at a time
+7. Report findings to the user. Wait for instruction.
+
+### If bun.lock is missing from the repo:
+STOP everything. Run `bun install` locally to generate it, commit it, deploy. That is the fix. Do not attempt workarounds (nixpacks.toml patches, --force flags, version pins). Just generate the lockfile.
+
+### Before every deploy:
+- Confirm `bun.lock` is committed: `git ls-files bun.lock`
+- Confirm `VITE_CLERK_PUBLISHABLE_KEY` in Railway is NOT a placeholder
+- Confirm `index.html` has no `process.env` references
+- Confirm `vite.config.ts` has `resolve: { dedupe: ['react', 'react-dom'] }`
+
+### Never do autonomously:
+- Delete or modify `bun.lock`
+- Change package versions in `package.json`
+- Add or remove Railway environment variables without showing the user what you're changing
+- Make multiple infrastructure changes in one step
+
+---
+
+
 ## Commands
 
 ```bash
