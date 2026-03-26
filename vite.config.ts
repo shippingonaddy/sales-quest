@@ -9,6 +9,9 @@ export default defineConfig({
       '/api': 'http://localhost:3001',
     },
   },
+  resolve: {
+    dedupe: ['react', 'react-dom'],
+  },
   build: {
     outDir: 'dist',
   },
