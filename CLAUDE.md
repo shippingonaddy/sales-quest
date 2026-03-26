@@ -59,15 +59,35 @@ Railway MCP server configured in `.mcp.json` — provides `railway logs`, `railw
 
 ### CRITICAL: Deployment rules — do not violate
 
-**Bun is NOT installed locally.** Never run `bun install`, `bun run build`, or any bun command locally. All bun commands run on Railway during the build. Do not generate or commit `bun.lock` — it cannot be created correctly without a local bun install and will contain wrong package versions.
+**Bun IS installed locally.** Run `bun install` locally to generate `bun.lock`. Always commit `bun.lock` — it pins exact package versions and tells nixpacks to use the bun runtime on Railway. Without it, Railway installs latest versions which causes version drift and production crashes.
 
-**Never touch `package.json` dependency versions** unless the user explicitly asks. `@clerk/clerk-react` is pinned at `5.21.0` (Core 2 LTS). v5.61.x introduced a React #310 crash (black screen) in production. Do not bump it.
+**bun.lock is the lockfile — keep it committed.** If packages need updating: run `bun install` locally, commit the updated `bun.lock`, deploy. Never delete `bun.lock` from the repo.
+
+**`@clerk/clerk-react` version:** Currently locked in `bun.lock`. Do not manually edit `bun.lock`. To change Clerk version: update `package.json`, run `bun install` locally, commit new `bun.lock`.
+
+**`index.html` must not contain `process.env`:** `process` does not exist in browsers — it throws `ReferenceError` before React loads, causing a blank page. Clerk key is read via `import.meta.env.VITE_CLERK_PUBLISHABLE_KEY` in `App.tsx`. Do not add script blocks to `index.html` that reference Node globals.
+
+**Vite must dedupe React:** `vite.config.ts` must have `resolve: { dedupe: ['react', 'react-dom'] }`. Without this, Clerk and the app bundle separate React instances, causing React error #310 (hooks violation black screen).
 
 **If a Railway build fails:** Report the exact error and ask the user what to do. Do not attempt to fix deployment failures by modifying `package.json`, `bun.lock`, or other infrastructure files autonomously — this caused a cascade of broken commits in March 2026 that took hours to undo.
 
 **To deploy:** The user runs `railway up` from their own terminal. Claude can use the Railway MCP (`mcp__railway__list-deployments`, `mcp__railway__get-logs`) to check status and diagnose — but cannot push code.
 
+**Railway `reason: "redeploy"` = stale image.** When Railway shows `reason: "redeploy"`, it is reusing an old cached image — new code is NOT deployed. Only `reason: "deploy"` means a fresh build from current code.
+
 **If the app breaks in production:** Check Railway deployment status and logs via MCP first. Do not modify source code as a first response to a deployment issue.
+
+### March 26 2026 incident post-mortem
+
+What broke: blank screen + React error #310 in production.
+Root causes (in order):
+1. `bun.lock` not committed → Railway installed latest Clerk on every build → version drift
+2. `process.env` in `index.html` → crashed browser before React loaded
+3. No `resolve.dedupe` in Vite → duplicate React instances → Clerk hooks failed
+
+What made it worse: Claude treated "Bun is NOT installed locally" as a permanent constraint and spent the session chasing Clerk version numbers instead of asking the user to install bun. The fix was always `bun install` → commit `bun.lock`.
+
+Time lost: full working day. Do not repeat this.
 
 ---
 
