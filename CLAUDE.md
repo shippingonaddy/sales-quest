@@ -57,6 +57,18 @@ Deployed on Railway via `railway.toml`. Build: `bun install && bun run build`. S
 
 Railway MCP server configured in `.mcp.json` — provides `railway logs`, `railway status`, `railway up` via Claude.
 
+### CRITICAL: Deployment rules — do not violate
+
+**Bun is NOT installed locally.** Never run `bun install`, `bun run build`, or any bun command locally. All bun commands run on Railway during the build. Do not generate or commit `bun.lock` — it cannot be created correctly without a local bun install and will contain wrong package versions.
+
+**Never touch `package.json` dependency versions** unless the user explicitly asks. `@clerk/clerk-react` is pinned at `5.21.0` (Core 2 LTS). v5.61.x introduced a React #310 crash (black screen) in production. Do not bump it.
+
+**If a Railway build fails:** Report the exact error and ask the user what to do. Do not attempt to fix deployment failures by modifying `package.json`, `bun.lock`, or other infrastructure files autonomously — this caused a cascade of broken commits in March 2026 that took hours to undo.
+
+**To deploy:** The user runs `railway up` from their own terminal. Claude can use the Railway MCP (`mcp__railway__list-deployments`, `mcp__railway__get-logs`) to check status and diagnose — but cannot push code.
+
+**If the app breaks in production:** Check Railway deployment status and logs via MCP first. Do not modify source code as a first response to a deployment issue.
+
 ---
 
 ## Coding Standards
