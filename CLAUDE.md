@@ -26,6 +26,12 @@ STOP everything. Run `bun install` locally to generate it, commit it, deploy. Th
 - Confirm `index.html` has no `process.env` references
 - Confirm `vite.config.ts` has `resolve: { dedupe: ['react', 'react-dom'] }`
 
+### When something is missing — get the real thing:
+- Missing `bun.lock`? → Install bun, run `bun install`. Not: patch nixpacks, pin versions, add flags.
+- Missing env var? → Set the real value. Not: hardcode fallbacks or add workaround scripts.
+- Missing tool? → Ask the user to install it. Not: find a 5-step workaround.
+- One real fix is always better than five clever patches. Workarounds compound into disasters.
+
 ### Never do autonomously:
 - Delete or modify `bun.lock`
 - Change package versions in `package.json`
