@@ -1,124 +1,124 @@
-# Sales Quest App
+# Sales Quest
 
-A standalone, runnable version of the Sales Quest application.
+A full-stack TypeScript SaaS app for tracking sales commissions, XP, streaks, and bonuses — with per-user persistent storage on the backend.
 
-## Ports
+## Stack
 
-- **Frontend (Vite)**: http://localhost:5173
-- **Backend API**: http://localhost:3001
-- **API endpoint**: http://localhost:3001/api/sales-quest
-- **Health check**: http://localhost:3001/health
+| Layer | Technology |
+|-------|-----------|
+| Runtime | Bun |
+| Frontend | React 18, TypeScript, Vite, Tailwind CSS |
+| Backend | Hono.js |
+| Auth | Clerk (JWT verified server-side) |
+| Storage | JSON files on Railway persistent volume |
+| Deployment | Railway |
 
-The Vite dev server proxies `/api/*` requests to the backend automatically.
+## Local Development
 
-## 📁 Project Structure
+```bash
+bun install          # install dependencies
+bun run dev          # frontend (5173) + backend (3001) in parallel
+bun run dev:server   # backend only
+bun run dev:client   # frontend only
+```
+
+Copy `.env.example` to `.env` and fill in your Clerk credentials before running.
+
+## Production
+
+```bash
+bun run build   # type-check + Vite build → dist/
+bun run start   # serves dist/ + API on $PORT (default 3001)
+```
+
+Deployed on Railway. Build: `bun install && bun run build`. Start: `bun run start`. The Hono server serves both the static `dist/` files and `/api/*` routes from a single process.
+
+## Architecture
+
+```
+Browser
+  └── React (src/)
+        └── /api/* requests
+              └── Hono server (server/)
+                    ├── Clerk JWT middleware (every route)
+                    └── File I/O → /data/sales-quest/<userId>/
+```
+
+In development, Vite proxies `/api/*` → `http://localhost:3001`.
+In production, Hono serves everything from one process on `$PORT`.
+
+## Data Storage
+
+All data lives on a Railway persistent volume mounted at `/data/sales-quest/`. Each user gets their own subdirectory keyed by Clerk `userId`:
+
+```
+/data/sales-quest/<userId>/
+  current.json          # current month's sales
+  settings.json         # commission settings
+  archive/
+    YYYY-MM.json        # past months
+  bonuses/
+    YYYY-MM.json        # monthly bonuses
+```
+
+Writes are atomic (write to temp file → rename) to prevent corruption. `userId` always comes from the verified Clerk JWT — never from the request body.
+
+## Project Structure
 
 ```
 sales-quest-app/
 ├── src/
 │   ├── pages/
-│   │   └── SalesQuest.tsx      # Main application page
-│   ├── components/              # React components
-│   ├── hooks/                   # Custom React hooks
-│   ├── lib/                     # Utility functions
-│   ├── types/                   # TypeScript types
-│   ├── App.tsx                  # Root component
-│   ├── main.tsx                 # Entry point
-│   └── index.css                # Global styles
+│   │   └── SalesQuest.tsx   # main app component (~1600 lines)
+│   ├── lib/
+│   │   ├── constants.ts     # shared constants and defaults
+│   │   ├── theme.ts         # color/glass card helpers
+│   │   ├── date.ts          # date/streak utilities
+│   │   ├── commission.ts    # commission/XP calculations
+│   │   └── api-client.ts   # API endpoint reference
+│   ├── types/
+│   │   └── index.ts         # shared TypeScript types
+│   ├── App.tsx              # ClerkProvider root
+│   └── main.tsx             # entry point
 ├── server/
+│   ├── index.ts             # Hono server entry
 │   └── api/
-│       └── sales-quest.ts       # API route handler
-├── public/                      # Static assets
-├── package.json                 # Dependencies
-├── tsconfig.json               # TypeScript config
-├── vite.config.ts              # Vite configuration
-├── tailwind.config.js          # Tailwind CSS config
-└── index.html                  # HTML entry point
+│       └── sales-quest.ts   # all API route handlers
+├── bun.lock                 # committed — pins exact package versions
+├── railway.toml             # build/start commands for Railway
+└── vite.config.ts           # Vite config (includes React dedupe)
 ```
 
-## 🚀 Quick Start
+## API
 
-### 1. Install Dependencies
+All routes require a valid Clerk JWT (`Authorization: Bearer <token>`).
 
-```bash
-cd /home/workspace/sales-quest-app
-bun install
-```
-
-### 2. Set up Environment Variables
-
-```bash
-cp .env.example .env
-# Edit .env with your Clerk credentials
-```
-
-### 3. Run the Development Server
-
-```bash
-# This starts both the API server and the Vite dev server
-bun run dev
-```
-
-The app will be available at:
-- **Frontend**: http://localhost:3000
-- **API**: http://localhost:3001/api/sales-quest
-- **Health Check**: http://localhost:3001/health
-
-### 4. Build for Production
-
-```bash
-bun run build
-```
-
-### 5. Start Production Server
-
-```bash
-bun run start
-```
-
-## 🔧 Features
-
-- **Frontend**: React + TypeScript + Tailwind CSS + Vite
-- **Backend**: Hono.js API server with file-based storage
-- **Authentication**: Clerk JWT verification
-- **Data Persistence**: JSON file storage with automatic archiving
-- **Streak Tracking**: Work-day aware streak calculation
-- **Import/Export**: JSON backup and restore functionality
-
-## 📊 API Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/sales-quest` | Get current month's data |
-| GET | `/api/sales-quest?month=YYYY-MM` | Get specific month's data |
-| GET | `/api/sales-quest?action=list_months` | List available months |
-| POST | `/api/sales-quest` | Save/update current month's data |
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/sales-quest?action=list_months` | List all months with data |
+| GET | `/api/sales-quest?month=YYYY-MM` | Get a specific month |
+| GET | `/api/sales-quest` | Get current month |
+| POST | `/api/sales-quest` | Save current month |
+| GET | `/api/sales-quest?action=total_commission` | All-time aggregate |
 | GET | `/health` | Health check |
 
-## 📝 Notes
+## Environment Variables
 
-- Data is stored in `/home/workspace/sales-quest-data/<user-id>/`
-- Each user gets their own subdirectory
-- Current month data is in `current.json`
-- Archived months are in `archive/YYYY-MM.json`
-- Local mode is available when Clerk is not configured
+| Variable | Where set | Purpose |
+|----------|-----------|---------|
+| `VITE_CLERK_PUBLISHABLE_KEY` | Railway (build-time) | Baked into frontend bundle by Vite |
+| `CLERK_SECRET_KEY` | Railway (runtime) | Backend JWT verification |
+| `PORT` | Railway (runtime) | Server port (default 3001) |
+| `DATA_DIR` | Railway (runtime) | Storage path (default `./data`) |
 
-## 🛠️ Development
+`VITE_*` vars must be set in Railway before deploying — Vite bakes them into the bundle at build time.
 
-### Running Individual Services
+## Key Business Logic
 
-```bash
-# API server only
-bun run dev:server
+- **Commission types**: `flat`, `flat_plus_down`, `front_back_percent`
+- **XP**: 50 per deal, 25 per split, 25 per streak day
+- **Levels**: `floor(XP / 100) + 1`
+- **Streaks**: exclude Sundays and Wednesdays (non-work days)
+- **Conflict resolution**: `lastModifiedTime` with 60s clock skew tolerance
 
-# Client dev server only (Vite)
-bun run dev:client
-```
-
-### Technology Stack
-
-- **Runtime**: Bun
-- **Frontend**: React 18, TypeScript, Vite, Tailwind CSS
-- **Backend**: Hono.js, Zod validation
-- **Auth**: Clerk
-- **Icons**: Lucide React
+Backend is canonical for commission and streak calculations. Frontend XP and badges are derived/cosmetic.
