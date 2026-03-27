@@ -1264,6 +1264,28 @@ export default function SalesQuest() {
     } catch { showToast("Failed to import file. Check the format.", "error"); }
   };
 
+  // ─── Stable initialData for edit modal ────────────────────────────────────
+  // Memoized so the object reference doesn't change on unrelated parent renders,
+  // preventing the SaleModal useEffect from resetting the form mid-edit.
+  // Must be before early returns — hooks cannot be called after conditional returns.
+
+  const editingInitialData = useMemo<Omit<Sale, "id">>(() => {
+    if (!editingSale) return newSale;
+    return {
+      date: editingSale.date,
+      customer: editingSale.customer,
+      stockNumber: editingSale.stockNumber || "",
+      year: editingSale.year || "",
+      make: editingSale.make || "",
+      model: editingSale.model || "",
+      downPayment: editingSale.downPayment,
+      frontGross: editingSale.frontGross || 0,
+      backGross: editingSale.backGross || 0,
+      split: editingSale.split,
+      notes: editingSale.notes,
+    };
+  }, [editingSale, newSale]);
+
   // ─── Early returns ──────────────────────────────────────────────────────────
 
   if (!clerkLoaded) {
@@ -1283,27 +1305,6 @@ export default function SalesQuest() {
       </div>
     );
   }
-
-  // ─── Stable initialData for edit modal ────────────────────────────────────
-  // Memoized so the object reference doesn't change on unrelated parent renders,
-  // preventing the SaleModal useEffect from resetting the form mid-edit.
-
-  const editingInitialData = useMemo<Omit<Sale, "id">>(() => {
-    if (!editingSale) return newSale;
-    return {
-      date: editingSale.date,
-      customer: editingSale.customer,
-      stockNumber: editingSale.stockNumber || "",
-      year: editingSale.year || "",
-      make: editingSale.make || "",
-      model: editingSale.model || "",
-      downPayment: editingSale.downPayment,
-      frontGross: editingSale.frontGross || 0,
-      backGross: editingSale.backGross || 0,
-      split: editingSale.split,
-      notes: editingSale.notes,
-    };
-  }, [editingSale, newSale]);
 
   // ─── Computed values ────────────────────────────────────────────────────────
 
