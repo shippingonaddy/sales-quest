@@ -40,6 +40,32 @@ STOP everything. Run `bun install` locally to generate it, commit it, deploy. Th
 
 ---
 
+## KNOWN FAILURE PATTERNS — READ BEFORE EVERY COMMIT
+
+Five patterns that have caused or risk causing production outages. Check each before committing.
+
+### 1. REACT #310 — Hooks after conditional returns
+`useMemo`, `useCallback`, `useEffect`, and all other hooks must **never** appear after conditional early returns (auth guards, loading checks). Always place every hook before:
+```
+if (!clerkLoaded) return ...
+if (!isAuthenticated) return ...
+```
+Violated once on March 26 2026 — caused a full production black screen.
+
+### 2. CLERK SCOPE — Auth code is off-limits without permission
+Never modify `clerkUser` prop types, `useUser`, `useAuth`, `getToken`, or any Clerk initialization code without explicit user permission. Type changes ripple into the entire auth flow.
+
+### 3. TYPESCRIPT BEFORE PUSH — Zero errors required
+Run `bunx tsc --noEmit` before every single commit. Never push with TypeScript errors. Railway will build successfully but serve a broken cached bundle with no obvious error in logs.
+
+### 4. HOOK EXTRACTION RISK — Check dep arrays after refactoring
+When moving functions to `lib/` files, check whether any extracted function is referenced inside a hook dependency array. Stable module-level exports do not belong in dep arrays — removing them from deps is correct, not a bug.
+
+### 5. RAILWAY CACHE — Verify the bundle actually changed
+The JS bundle filename must change between deploys to confirm Railway rebuilt from new code. If the filename in the deployed `dist/` is identical to the previous deploy, Railway served a cached image and the changes did not deploy. A `reason: "redeploy"` deployment entry is the signal — only `reason: "deploy"` means a fresh build.
+
+---
+
 
 ## Commands
 
