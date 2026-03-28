@@ -6,10 +6,9 @@ import {
 } from "lucide-react";
 import { useAuth, useUser, UserButton, RedirectToSignIn } from '@clerk/clerk-react';
 
-// ─── Toast ────────────────────────────────────────────────────────────────────
+import type { CommissionSnapshot, Sale, Bonus, GameState, CommissionSettings, Screen, ToastVariant, Toast } from "../types";
 
-type ToastVariant = "success" | "error" | "info";
-interface Toast { id: number; message: string; variant: ToastVariant; }
+// ─── Toast ────────────────────────────────────────────────────────────────────
 
 function useToast() {
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -37,61 +36,6 @@ const ToastContainer: FC<{ toasts: Toast[] }> = ({ toasts }) => (
     ))}
   </div>
 );
-
-// ─── Interfaces ───────────────────────────────────────────────────────────────
-
-interface CommissionSnapshot {
-  type: "flat" | "flat_plus_down" | "front_back_percent";
-  flatAmount: number;
-  flatBase: number;
-  downPercent: number;
-  frontendPercent: number;
-  backendPercent: number;
-}
-
-interface Sale {
-  id: string;
-  date: string;
-  customer: string;
-  stockNumber?: string;
-  year?: string;
-  make?: string;
-  model?: string;
-  downPayment: number;
-  frontGross: number;
-  backGross: number;
-  split: boolean;
-  notes: string;
-  commissionSnapshot?: CommissionSnapshot;
-}
-
-interface Bonus {
-  id: string;
-  date: string;
-  amount: number;
-  label: string;
-}
-
-interface GameState {
-  sales: Sale[];
-  lastActiveDate: string;
-  streak?: number;
-  lastModifiedTime?: number;
-}
-
-interface CommissionSettings {
-  type: "flat" | "flat_plus_down" | "front_back_percent";
-  flatAmount: number;
-  flatBase: number;
-  downPercent: number;
-  frontendPercent: number;
-  backendPercent: number;
-  payPeriodType: "weekly" | "biweekly";
-  payPeriodStart: string;
-  configured: boolean;
-}
-
-type Screen = "home" | "badges" | "backup" | "settings" | "diagnostic";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
