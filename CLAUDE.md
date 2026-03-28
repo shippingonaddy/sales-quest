@@ -527,13 +527,43 @@ Phase 0 only touches top-of-file declarations — the hooks block inside the com
 
 **Deploy readiness:** READY. No frontend changes required. No package changes. `bun.lock` untouched.
 
-### Phase 2 — TanStack Query (planned, not yet designed)
+### Phase 2 — TanStack Query ✅ COMPLETE (2026-03-28)
 
-- Install `@tanstack/react-query`
-- Add `src/lib/react-query.ts` config (mirrors bulletproof-react pattern)
-- Migrate `useEffect` fetch calls to `useQuery` / `useMutation` hooks
-- Move fetch calls out of SalesQuest.tsx into `src/features/sales/api/`
-- Adopt bulletproof-react query key pattern: `['sales', { month }]`, `['settings']`, `['bonuses', { month }]`
+**Package added:** `@tanstack/react-query@5.95.2` — only package change.
+
+**Files created:**
+- `src/lib/react-query.ts` — QueryClient singleton (`retry: 2`, `staleTime: 30s`, `refetchOnWindowFocus: true`)
+- `src/lib/api-client.ts` — filled in from Phase 0 shell; typed fetcher functions for all 8 actions
+- `src/hooks/useAuthHeaders.ts` — `getTokenRef` + `getAuthHeaders` extracted from SalesQuest
+- `src/hooks/useSalesQueries.ts` — 5 `useQuery` hooks + query key constants
+- `src/hooks/useSalesMutations.ts` — 4 `useMutation` hooks with `queryClient.invalidateQueries` on success
+
+**Files edited:**
+- `src/App.tsx` — `QueryClientProvider` wraps `ClerkProvider` (no provider reorder)
+- `src/pages/SalesQuest.tsx` — 1,406 → 1,294 lines; 6 fetch useEffects + 3 manual mutation callbacks removed
+
+**Commits:**
+- `77659ff` chore: add @tanstack/react-query@5.95.2 (Phase 2)
+- `a3f07c3` refactor: add QueryClient singleton to src/lib/react-query.ts (Phase 2)
+- `fa08495` refactor: fill in typed fetcher functions in src/lib/api-client.ts (Phase 2)
+- `1a5abce` refactor: extract useAuthHeaders hook (Phase 2)
+- `a1c833a` refactor: add useSalesQueries hooks (Phase 2)
+- `f6a6c31` refactor: add useSalesMutations hooks (Phase 2)
+- `0a7c6e4` refactor: add QueryClientProvider to src/App.tsx (Phase 2)
+- `80146da` refactor: wire TanStack Query reads and mutations in SalesQuest.tsx (Phase 2)
+
+**Key behavior notes:**
+- `selectedMonth` gate preserved: `monthDataQuery` has `enabled: monthEnabled && !!selectedMonth`; initialized by `useEffect([monthsQuery.data])` that fires once when `!selectedMonth`
+- `handleVisibility` (data refetch on tab focus) replaced by TQ `refetchOnWindowFocus: true` — active on all queries
+- localStorage write-through preserved via `useEffect` watching `settingsQuery.data` and `bonusesQuery.data`
+- `totalCommissionAllMonths` derived: `(allTimeTotalQuery.data ?? 0) + bonuses.reduce(...)` — no longer a state variable
+- Conflict detection (HTTP 409) handled in `saveMonthMutation` `onError` at call site with `err.status === 409`
+- `exportData`, `importData`, `runDiagnostic` use `getAuthHeaders` from `useAuthHeaders()` closure — unchanged behavior
+- All `?action=` URLs identical to pre-Phase-2; no backend contract changes
+
+**TypeScript:** zero errors at every step; `bun run build` passes after Steps 6 and 7
+
+**Deploy readiness:** READY. `bun.lock` updated with TanStack Query. No other infrastructure changes.
 
 ### Phase 3 — Component extraction (planned, not yet designed)
 
