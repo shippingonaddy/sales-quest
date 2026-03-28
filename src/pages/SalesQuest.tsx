@@ -5,6 +5,15 @@ import {
   Settings, Star, TrendingUp, Upload, X, Zap,
 } from "lucide-react";
 import { useAuth, useUser, UserButton, RedirectToSignIn } from '@clerk/clerk-react';
+import { useAuthHeaders } from "../hooks/useAuthHeaders";
+import {
+  useSettingsQuery, useMonthsQuery, useMonthDataQuery,
+  useBonusesQuery, useAllTimeTotalQuery,
+} from "../hooks/useSalesQueries";
+import {
+  useSaveMonthMutation, useSaveSettingsMutation,
+  useSaveBonusMutation, useDeleteBonusMutation,
+} from "../hooks/useSalesMutations";
 
 import type { Sale, Bonus, GameState, CommissionSettings, Screen, ToastVariant, Toast } from "../types";
 
@@ -37,7 +46,7 @@ const ToastContainer: FC<{ toasts: Toast[] }> = ({ toasts }) => (
   </div>
 );
 
-import { XP_PER_LEVEL, API_ENDPOINT, RETRY_DELAYS, SETTINGS_KEY, BONUS_KEY, DEFAULT_SETTINGS } from "../lib/constants";
+import { XP_PER_LEVEL, API_ENDPOINT, SETTINGS_KEY, BONUS_KEY, DEFAULT_SETTINGS } from "../lib/constants";
 import { C, RGB, GLASS, hexToRgb } from "../lib/theme";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -639,44 +648,101 @@ export default function SalesQuest() {
   const [diagnosticResult, setDiagnosticResult] = useState<any>(null);
   const [commissionSettings, setCommissionSettings] = useState<CommissionSettings>(loadSettings);
   const [bonuses, setBonuses] = useState<Bonus[]>(loadBonusesFromStorage);
-  const [totalCommissionAllMonths, setTotalCommissionAllMonths] = useState(0);
   const [newSale, setNewSale] = useState<Omit<Sale, "id">>({ date: getLocalDateString(), customer: "", stockNumber: "", year: "", make: "", model: "", downPayment: 0, frontGross: 0, backGross: 0, split: false, notes: "" });
   const { toasts, show: showToast } = useToast();
 
   const makeId = () => { try { return crypto.randomUUID(); } catch { return `${Date.now()}_${Math.random().toString(16).slice(2)}`; } };
 
-  // ─── Auth / Settings / Data helpers ────────────────────────────────────────
+  // ─── TanStack Query ──────────────────────────────────────────────────────────
 
-  // Keep getToken in a ref so getAuthHeaders doesn't change identity every render.
-  // getToken is a stable Clerk function but its reference changes each render,
-  // which would otherwise cascade into every useEffect that depends on getAuthHeaders.
-  const getTokenRef = useRef(getToken);
-  useEffect(() => { getTokenRef.current = getToken; });
+  const getAuthHeaders = useAuthHeaders();
+  const authEnabled = isAuthenticated && clerkLoaded && !!clerkUser;
+  const monthEnabled = authEnabled && !!selectedMonth;
 
-  const getAuthHeaders = useCallback(async (): Promise<HeadersInit> => {
-    const headers: Record<string, string> = {
-      Accept: "application/json",
-      "X-Timezone": Intl.DateTimeFormat().resolvedOptions().timeZone,
-    };
-    if (isSignedIn) {
-      try {
-        const token = await getTokenRef.current();
-        if (token) { headers.Authorization = `Bearer ${token}`; headers["X-Clerk-Token"] = token; }
-      } catch (err) { console.error("Failed to get Clerk token:", err); }
-    }
-    return headers;
-  }, [isSignedIn]);
+  const settingsQuery = useSettingsQuery(getAuthHeaders, authEnabled);
+  const monthsQuery = useMonthsQuery(getAuthHeaders, authEnabled);
+  const monthDataQuery = useMonthDataQuery(getAuthHeaders, selectedMonth, currentMonth, monthEnabled);
+  const bonusesQuery = useBonusesQuery(getAuthHeaders, selectedMonth, currentMonth, monthEnabled);
+  const allTimeTotalQuery = useAllTimeTotalQuery(getAuthHeaders, authEnabled);
 
-  const handleSaveSettings = async (settings: CommissionSettings) => {
+  const saveMonthMutation = useSaveMonthMutation(getAuthHeaders);
+  const saveSettingsMutation = useSaveSettingsMutation(getAuthHeaders);
+  const saveBonusMutation = useSaveBonusMutation(getAuthHeaders, currentMonth);
+  const deleteBonusMutation = useDeleteBonusMutation(getAuthHeaders, currentMonth);
+
+  // ─── selectedMonth initialization — preserves sequential gate ────────────────
+  // monthDataQuery is enabled only when selectedMonth is set (!!selectedMonth).
+  // This effect fires once on first months load and keeps availableMonths current.
+
+  useEffect(() => {
+    if (!monthsQuery.data) return;
+    setAvailableMonths(monthsQuery.data.months);
+    setCurrentMonth(monthsQuery.data.currentMonth);
+    if (!selectedMonth) setSelectedMonth(monthsQuery.data.currentMonth);
+  }, [monthsQuery.data]);
+
+  // ─── Sync month data from query into local state ──────────────────────────────
+
+  useEffect(() => {
+    if (!monthDataQuery.data) return;
+    setState(monthDataQuery.data.data);
+    setIsArchived(monthDataQuery.data.isArchived);
+    setSaveStatus("saved");
+  }, [monthDataQuery.data]);
+
+  // ─── Save status from query loading/error states ──────────────────────────────
+
+  useEffect(() => {
+    if (monthsQuery.isLoading || monthDataQuery.isLoading) { setSaveStatus("loading"); return; }
+    if (monthsQuery.isError || monthDataQuery.isError) setSaveStatus("error");
+  }, [monthsQuery.isLoading, monthsQuery.isError, monthDataQuery.isLoading, monthDataQuery.isError]);
+
+  // ─── Settings write-through to localStorage ───────────────────────────────────
+
+  useEffect(() => {
+    if (!settingsQuery.data) return;
+    const merged = { ...DEFAULT_SETTINGS, ...settingsQuery.data };
+    if ((merged as any).type === "frontend_percent") (merged as any).type = "front_back_percent";
+    setCommissionSettings(merged);
+    saveSettingsToStorage(merged);
+  }, [settingsQuery.data]);
+
+  // ─── Bonuses write-through to localStorage ────────────────────────────────────
+
+  useEffect(() => {
+    if (!bonusesQuery.data) return;
+    setBonuses(bonusesQuery.data);
+    saveBonusesToStorage(bonusesQuery.data);
+  }, [bonusesQuery.data]);
+
+  // ─── Derived total commission (server total + current bonuses) ────────────────
+
+  const totalCommissionAllMonths = (allTimeTotalQuery.data ?? 0) + bonuses.reduce((sum, b) => sum + b.amount, 0);
+
+  // ─── Mutation helpers ────────────────────────────────────────────────────────
+
+  const saveSalesToCloud = (updatedSales: Sale[]) => {
+    if (isArchived) return;
+    setSaveStatus("saving");
+    saveMonthMutation.mutate(
+      { sales: updatedSales, lastModifiedTime: state.lastModifiedTime },
+      {
+        onSuccess: (data) => { setState(data.data); setSaveStatus("saved"); },
+        onError: (err: any) => {
+          if (err?.status === 409) { setSaveStatus("conflict"); showToast("Data conflict — please refresh to get the latest version.", "error"); }
+          else setSaveStatus("error");
+        },
+      }
+    );
+  };
+
+  const handleSaveSettings = (settings: CommissionSettings) => {
     const wasOnboarding = showOnboarding;
     setCommissionSettings(settings);
     saveSettingsToStorage(settings);
     setShowOnboarding(false);
     if (isSignedIn) {
-      try {
-        const headers = await getAuthHeaders();
-        await fetch(`${API_ENDPOINT}?action=save_settings`, { method: "POST", headers: { ...(headers as any), "Content-Type": "application/json" }, body: JSON.stringify(settings) });
-      } catch (e) {}
+      saveSettingsMutation.mutate(settings);
     }
     // If user came from tapping Log a Sale, return them there
     if (wasOnboarding) {
@@ -698,28 +764,22 @@ export default function SalesQuest() {
 
   // ─── Bonus handlers ─────────────────────────────────────────────────────────
 
-  const handleAddBonus = async (bonus: Omit<Bonus, "id">) => {
+  const handleAddBonus = (bonus: Omit<Bonus, "id">) => {
     const full: Bonus = { ...bonus, id: makeId() };
     const updated = [...bonuses, full];
     setBonuses(updated);
     saveBonusesToStorage(updated);
     if (isSignedIn) {
-      try {
-        const headers = await getAuthHeaders();
-        await fetch(`${API_ENDPOINT}?action=save_bonus`, { method: "POST", headers: { ...(headers as any), "Content-Type": "application/json" }, body: JSON.stringify(full) });
-      } catch (e) {}
+      saveBonusMutation.mutate({ bonus: full });
     }
   };
 
-  const handleDeleteBonus = async (id: string) => {
+  const handleDeleteBonus = (id: string) => {
     const updated = bonuses.filter(b => b.id !== id);
     setBonuses(updated);
     saveBonusesToStorage(updated);
     if (isSignedIn) {
-      try {
-        const headers = await getAuthHeaders();
-        await fetch(`${API_ENDPOINT}?action=delete_bonus`, { method: "POST", headers: { ...(headers as any), "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
-      } catch (e) {}
+      deleteBonusMutation.mutate({ id });
     }
   };
 
@@ -727,193 +787,21 @@ export default function SalesQuest() {
 
   const handleAddSale = (saleInput: Omit<Sale, "id">) => {
     const fullSale: Sale = { ...saleInput, id: makeId(), commissionSnapshot: createSnapshot(commissionSettings) };
-    saveToCloud([...state.sales, fullSale], state.lastModifiedTime);
+    saveSalesToCloud([...state.sales, fullSale]);
     setShowAddSale(false);
   };
 
   const handleUpdateSale = (updated: Sale | Omit<Sale, "id">) => {
     const fullSale = updated as Sale;
-    saveToCloud(state.sales.map(s => s.id === fullSale.id ? fullSale : s), state.lastModifiedTime);
+    saveSalesToCloud(state.sales.map(s => s.id === fullSale.id ? fullSale : s));
     setEditingSale(null);
   };
 
   const deleteSale = (id: string) => {
-    saveToCloud(state.sales.filter(s => s.id !== id), state.lastModifiedTime);
+    saveSalesToCloud(state.sales.filter(s => s.id !== id));
     setEditingSale(prev => prev?.id === id ? null : prev);
   };
 
-  // ─── Cloud settings load (once on login) ───────────────────────────────────
-
-  useEffect(() => {
-    if (!isAuthenticated || !clerkLoaded || !clerkUser) return;
-    const fetchSettings = async () => {
-      try {
-        const headers = await getAuthHeaders();
-        const res = await fetch(`${API_ENDPOINT}?action=get_settings`, { headers });
-        const result = await res.json();
-        if (result.success && result.settings) {
-          const merged = { ...DEFAULT_SETTINGS, ...result.settings };
-          if (merged.type === "frontend_percent") merged.type = "front_back_percent";
-          setCommissionSettings(merged); saveSettingsToStorage(merged);
-        }
-      } catch {}
-    };
-    fetchSettings();
-  }, [isAuthenticated, clerkLoaded, clerkUser, getAuthHeaders]);
-
-  // ─── Cloud bonuses load (reloads on month change) ───────────────────────────
-
-  useEffect(() => {
-    if (!isAuthenticated || !clerkLoaded || !clerkUser || !selectedMonth) return;
-    const fetchBonuses = async () => {
-      try {
-        const headers = await getAuthHeaders();
-        const monthParam = selectedMonth !== currentMonth ? `&month=${selectedMonth}` : "";
-        const res = await fetch(`${API_ENDPOINT}?action=get_bonuses${monthParam}`, { headers });
-        const result = await res.json();
-        if (result.success && result.bonuses) { setBonuses(result.bonuses); saveBonusesToStorage(result.bonuses); }
-      } catch {}
-    };
-    fetchBonuses();
-  }, [isAuthenticated, clerkLoaded, clerkUser, selectedMonth, currentMonth, getAuthHeaders]);
-
-  // ─── Month list ─────────────────────────────────────────────────────────────
-
-  useEffect(() => {
-    if (!isAuthenticated || !clerkLoaded || !clerkUser) return;
-    let cancelled = false;
-    const controller = new AbortController();
-    // Safety timeout: if list_months hangs, unblock the UI after 8s
-    const safetyTimeout = setTimeout(() => {
-      if (!cancelled) { controller.abort(); setSaveStatus("error"); }
-    }, 8000);
-
-    const fetchMonths = async (retry = 0) => {
-      try {
-        setSaveStatus("loading");
-        const headers = await getAuthHeaders();
-        const res = await fetch(`${API_ENDPOINT}?action=list_months`, { headers, signal: controller.signal });
-        if (cancelled) return;
-        if (!res.ok) {
-          if (res.status === 401 || res.status === 403) { setSaveStatus("error"); return; }
-          if (retry < RETRY_DELAYS.length) { await new Promise(r => setTimeout(r, RETRY_DELAYS[retry])); if (!cancelled) return fetchMonths(retry + 1); return; }
-          setSaveStatus("error"); return;
-        }
-        const result = await res.json();
-        if (cancelled) return;
-        if (result.success) {
-          setAvailableMonths(result.months || []);
-          setCurrentMonth(result.currentMonth);
-          setSelectedMonth(result.currentMonth);
-          setSaveStatus("saved");
-        } else {
-          if (retry < RETRY_DELAYS.length) { await new Promise(r => setTimeout(r, RETRY_DELAYS[retry])); if (!cancelled) return fetchMonths(retry + 1); return; }
-          setSaveStatus("error");
-        }
-      } catch (err: any) {
-        if (cancelled || err?.name === "AbortError") return;
-        if (retry < RETRY_DELAYS.length) { await new Promise(r => setTimeout(r, RETRY_DELAYS[retry])); if (!cancelled) return fetchMonths(retry + 1); return; }
-        setSaveStatus("error");
-      }
-    };
-    fetchMonths();
-    return () => { cancelled = true; controller.abort(); clearTimeout(safetyTimeout); };
-  }, [isAuthenticated, clerkLoaded, clerkUser, getAuthHeaders]);
-
-  // ─── Data load ──────────────────────────────────────────────────────────────
-
-  useEffect(() => {
-    if (!selectedMonth || !isAuthenticated) return;
-    const safetyTimeout = setTimeout(() => setSaveStatus(prev => prev === "loading" ? "error" : prev), 8000);
-    const loadData = async (retry = 0) => {
-      try {
-        setSaveStatus("loading");
-        const url = selectedMonth === currentMonth ? API_ENDPOINT : `${API_ENDPOINT}?month=${selectedMonth}`;
-        const headers = await getAuthHeaders();
-        const res = await fetch(url, { headers });
-        if (!res.ok) {
-          if (res.status === 401 || res.status === 403) { setSaveStatus("error"); return; }
-          if (retry < RETRY_DELAYS.length) { await new Promise(r => setTimeout(r, RETRY_DELAYS[retry])); return loadData(retry + 1); }
-          setSaveStatus("error"); return;
-        }
-        const result = await res.json();
-        if (result.success && result.data) { setState(result.data); setIsArchived(result.isArchived || false); setSaveStatus("saved"); }
-        else {
-          if (retry < RETRY_DELAYS.length) { await new Promise(r => setTimeout(r, RETRY_DELAYS[retry])); return loadData(retry + 1); }
-          setSaveStatus("error");
-        }
-      } catch {
-        if (retry < RETRY_DELAYS.length) { await new Promise(r => setTimeout(r, RETRY_DELAYS[retry])); return loadData(retry + 1); }
-        setSaveStatus("error");
-      }
-    };
-    loadData(); return () => clearTimeout(safetyTimeout);
-  }, [selectedMonth, isAuthenticated, getAuthHeaders, currentMonth]);
-
-  // ─── Visibility refetch — sync when app comes back into focus ────────────────
-
-  useEffect(() => {
-    if (!isAuthenticated || !currentMonth) return;
-    const handleVisibility = async () => {
-      if (document.visibilityState !== "visible") return;
-      if (!isSignedIn) return;
-      try {
-        const headers = await getAuthHeaders();
-        const res = await fetch(API_ENDPOINT, { headers });
-        const result = await res.json();
-        if (result.success && result.data) {
-          const serverTime = result.data.lastModifiedTime || 0;
-          setState(prev => {
-            if (serverTime > (prev.lastModifiedTime || 0)) { return result.data; }
-            return prev;
-          });
-        }
-      } catch {}
-    };
-    document.addEventListener("visibilitychange", handleVisibility);
-    return () => document.removeEventListener("visibilitychange", handleVisibility);
-  }, [isAuthenticated, currentMonth, getAuthHeaders]);
-
-  // ─── Save (explicit, only called on user mutations) ─────────────────────────
-
-  const saveToCloud = useCallback(async (sales: Sale[], currentLastModifiedTime?: number) => {
-    if (isArchived) return;
-    try {
-      setSaveStatus("saving");
-      const headers = await getAuthHeaders();
-      const res = await fetch(API_ENDPOINT, {
-        method: "POST",
-        headers: { ...(headers as any), "Content-Type": "application/json" },
-        body: JSON.stringify({ sales, lastModifiedTime: currentLastModifiedTime }),
-      });
-      if (res.status === 409) { setSaveStatus("conflict"); showToast("Data conflict — please refresh to get the latest version.", "error"); return; }
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const result = await res.json();
-      if (result.success && result.data) {
-        setState(result.data);
-        setSaveStatus("saved");
-        fetchTotalCommission();
-      } else setSaveStatus("error");
-    } catch { setSaveStatus("error"); }
-  }, [isArchived, getAuthHeaders]);
-
-  // ─── Total commission ───────────────────────────────────────────────────────
-
-  const fetchTotalCommission = useCallback(async (): Promise<void> => {
-    if (!isSignedIn) return;
-    const allBonusesTotal = bonuses.reduce((sum, b) => sum + b.amount, 0);
-    try {
-      const headers = await getAuthHeaders();
-      const res = await fetch(`${API_ENDPOINT}?action=all_time_total`, { headers });
-      const result = await res.json();
-      if (result.success) setTotalCommissionAllMonths(result.total + allBonusesTotal);
-    } catch {}
-  }, [bonuses, getAuthHeaders, isSignedIn]);
-
-  useEffect(() => {
-    if (!isAuthenticated || !clerkLoaded || !clerkUser) return;
-    fetchTotalCommission();
-  }, [isAuthenticated, clerkLoaded, clerkUser, fetchTotalCommission]);
 
   // ─── Diagnostic ─────────────────────────────────────────────────────────────
 
