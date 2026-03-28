@@ -2,6 +2,25 @@
 
 Always-on guidelines for this project.
 
+---
+
+## Search Discipline (mandatory before non-trivial edits)
+
+For any non-trivial coding task:
+
+1. **Exact search first** — use Claude Code's built-in **Grep (ripgrep-backed)** and Glob for known symbols, imports, filenames, routes, env vars, and exact strings before reading files.
+2. **Semantic search second** — use **GrepAI** when the task is conceptual or the exact symbol is unknown.
+3. **Read files only after search narrows candidates** — do not open full files speculatively.
+4. **Do not scan the whole repo first** — targeted search, then read.
+5. **Do not read README files** unless explicitly requested by the user.
+6. **Before editing, state:**
+   - search method used
+   - files matched
+   - why those files are in scope
+7. **Keep edits scoped to files justified by search results.**
+
+---
+
 ## Coding Style
 
 - **Immutability (CRITICAL)**: ALWAYS create new objects with spread (`{...obj, key: value}`), NEVER mutate existing ones directly
