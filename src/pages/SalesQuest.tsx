@@ -37,25 +37,7 @@ const ToastContainer: FC<{ toasts: Toast[] }> = ({ toasts }) => (
   </div>
 );
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-const XP_PER_LEVEL = 100;
-const API_ENDPOINT = "/api/sales-quest";
-const RETRY_DELAYS = [500, 1500, 3000];
-const SETTINGS_KEY = "sales_quest_commission_settings_v2";
-const BONUS_KEY = "sales_quest_bonuses_v1";
-
-const DEFAULT_SETTINGS: CommissionSettings = {
-  type: "flat_plus_down",
-  flatAmount: 100,
-  flatBase: 100,
-  downPercent: 10,
-  frontendPercent: 25,
-  backendPercent: 0,
-  payPeriodType: "biweekly",
-  payPeriodStart: "",
-  configured: false,
-};
+import { XP_PER_LEVEL, API_ENDPOINT, RETRY_DELAYS, SETTINGS_KEY, BONUS_KEY, DEFAULT_SETTINGS } from "../lib/constants";
 
 // Color tokens
 const C = {
