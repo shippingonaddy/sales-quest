@@ -269,3 +269,256 @@ Detailed patterns are in `.claude/skills/`:
 Full rules: `.claude/rules/common.md` and `.claude/rules/typescript.md`
 
 Agent definition: `.claude/agents/typescript-reviewer.md`
+
+---
+
+## ARCHITECTURE PLAN — SOURCE OF TRUTH
+
+This is the locked refactor plan. Do not deviate from it. Do not implement phases out of order. Do not add logic to `SalesQuest.tsx` — it is the extraction target.
+
+---
+
+### Phase 0 — Mechanical extraction (types, constants, utilities)
+
+**Scope:** Pure mechanical moves. Zero behavior changes. Zero runtime logic changes. TypeScript must compile after every step. No backend files touched.
+
+**Files to create:**
+```
+src/types/index.ts
+src/lib/constants.ts
+src/lib/theme.ts
+src/lib/date.ts
+src/lib/commission.ts
+src/lib/api-client.ts   ← shell only in Phase 0
+```
+
+**File to edit:**
+```
+src/pages/SalesQuest.tsx   ← imports replace inline declarations; nothing else changes
+```
+
+---
+
+#### Step 1 — `src/types/index.ts`
+
+Extract verbatim from SalesQuest.tsx:
+
+| Item | Current line(s) |
+|------|----------------|
+| `ToastVariant` | 11 |
+| `Toast` | 12 |
+| `CommissionSnapshot` | 43–50 |
+| `Sale` | 52–66 |
+| `Bonus` | 68–73 |
+| `GameState` | 75–80 |
+| `CommissionSettings` | 82–92 |
+| `Screen` | 94 |
+
+SalesQuest.tsx import:
+```ts
+import type { CommissionSnapshot, Sale, Bonus, GameState, CommissionSettings, Screen, ToastVariant, Toast } from "../types";
+```
+
+Commit: `refactor: extract types to src/types/index.ts (Phase 0)`
+
+---
+
+#### Step 2 — `src/lib/constants.ts`
+
+Extract verbatim from SalesQuest.tsx:
+
+| Item | Current line(s) |
+|------|----------------|
+| `XP_PER_LEVEL` | 98 |
+| `API_ENDPOINT` | 99 |
+| `RETRY_DELAYS` | 100 |
+| `SETTINGS_KEY` | 101 |
+| `BONUS_KEY` | 102 |
+| `DEFAULT_SETTINGS` | 104–114 |
+
+Imports: `CommissionSettings` from `../types`.
+
+SalesQuest.tsx import:
+```ts
+import { XP_PER_LEVEL, API_ENDPOINT, RETRY_DELAYS, SETTINGS_KEY, BONUS_KEY, DEFAULT_SETTINGS } from "../lib/constants";
+```
+
+Commit: `refactor: extract constants to src/lib/constants.ts (Phase 0)`
+
+---
+
+#### Step 3 — `src/lib/theme.ts`
+
+Extract verbatim (two non-contiguous blocks):
+
+| Item | Current line(s) |
+|------|----------------|
+| `C` (color tokens) | 117–126 |
+| `_hexRgbCache` | 351 |
+| `hexToRgb()` | 352–361 |
+| `RGB` | 364 |
+| `glassCard()` | 366–374 |
+| `GLASS` | 377 |
+
+No external imports needed — pure math and string manipulation.
+
+SalesQuest.tsx import:
+```ts
+import { C, RGB, GLASS, glassCard, hexToRgb } from "../lib/theme";
+```
+
+Commit: `refactor: extract theme tokens to src/lib/theme.ts (Phase 0)`
+
+---
+
+#### Step 4 — `src/lib/date.ts`
+
+Extract verbatim:
+
+| Item | Current line(s) |
+|------|----------------|
+| `getLocalDateString()` | 130–133 |
+| `getCurrentMonth()` | 135 |
+| `getEmptyState()` | 137–140 |
+| `getYesterday()` | 179–182 |
+| `isWorkDay()` | 184–187 |
+| `getPrevWorkDay()` | 189–194 |
+| `calculateLocalStreakFromSales()` | 196–224 |
+| `getLocalDateStringFromDate()` | 226–228 |
+| `buildLocalStateFromSales()` | 230–242 |
+| `formatMonth()` | 244–249 |
+| `groupSalesByDate()` | 330–347 |
+
+Imports: `Sale`, `GameState` from `../types`.
+
+`getLocalDateStringFromDate`, `isWorkDay`, `getPrevWorkDay` are only used internally by other date functions — they do not appear in the SalesQuest.tsx import but must be exported for tsc.
+
+SalesQuest.tsx import:
+```ts
+import {
+  getLocalDateString, getCurrentMonth, getEmptyState,
+  getYesterday, formatMonth, groupSalesByDate,
+  buildLocalStateFromSales, calculateLocalStreakFromSales,
+} from "../lib/date";
+```
+
+Commit: `refactor: extract date utilities to src/lib/date.ts (Phase 0)`
+
+---
+
+#### Step 5 — `src/lib/commission.ts`
+
+Extract verbatim:
+
+| Item | Current line(s) |
+|------|----------------|
+| `computeBase()` | 253–260 |
+| `getSaleCommission()` | 262–268 |
+| `calculateRevenue()` | 270–271 |
+| `createSnapshot()` | 273–276 |
+| `getPayPeriodRange()` | 280–300 |
+| `calculateXP()` | 305–309 |
+| `getLevel()` | 311 |
+| `getXPProgress()` | 312 |
+| `getXPRemaining()` | 313 |
+| `badges` array | 317–326 |
+
+Imports:
+- `Sale`, `CommissionSettings`, `CommissionSnapshot`, `GameState` from `../types`
+- `DEFAULT_SETTINGS`, `XP_PER_LEVEL` from `./constants`
+- `C` from `./theme` — `badges` uses color tokens
+
+SalesQuest.tsx import:
+```ts
+import {
+  computeBase, getSaleCommission, calculateRevenue, createSnapshot,
+  getPayPeriodRange, calculateXP, getLevel, getXPProgress, getXPRemaining,
+  badges,
+} from "../lib/commission";
+```
+
+Commit: `refactor: extract commission logic to src/lib/commission.ts (Phase 0)`
+
+---
+
+#### Step 6 — `src/lib/api-client.ts` (shell only)
+
+```ts
+// src/lib/api-client.ts
+// Phase 0: shell only. Fetch calls remain in SalesQuest.tsx until Phase 2 (TanStack Query).
+// This file is the landing zone for the HTTP client layer.
+export { API_ENDPOINT } from "./constants";
+```
+
+No edits to SalesQuest.tsx. No behavior change.
+
+Commit: `refactor: add api-client shell (Phase 0)`
+
+---
+
+#### Dependency order (do not reorder steps)
+
+```
+Step 1  types/index.ts         ← no dependencies
+Step 2  lib/constants.ts       ← depends on types (Step 1)
+Step 3  lib/theme.ts           ← no dependencies
+Step 4  lib/date.ts            ← depends on types (Step 1)
+Step 5  lib/commission.ts      ← depends on types (1), constants (2), theme (3)
+Step 6  lib/api-client.ts      ← depends on constants (2)
+```
+
+---
+
+#### What stays in SalesQuest.tsx — and why
+
+| Item | Reason |
+|------|--------|
+| `useToast` hook + `ToastContainer` | Hook coupled to component state; extract to `src/components/ui/Toast.tsx` in Phase 3 |
+| `loadSettings`, `saveSettingsToStorage`, `loadBonusesFromStorage`, `saveBonusesToStorage` | localStorage reads tied to component init; move when settings go to TanStack Query in Phase 2 |
+| `Background`, `Drawer`, `SwipeSaleCard`, `AddBonusModal`, `SaleModal`, `SettingsScreen` | Sub-components — Phase 3 |
+| `DrawerProps`, `SwipeSaleCardProps`, `AddBonusModalProps`, `SaleModalProps`, `SettingsScreenProps` | Stay with their components until Phase 3 extracts them |
+| All `useEffect` fetch calls | Phase 2 (TanStack Query) |
+| `saveToCloud`, `getAuthHeaders`, `tokenRef` | Phase 2 |
+
+---
+
+#### Hooks safety check — run after every step that edits SalesQuest.tsx
+
+```bash
+bunx tsc --noEmit
+grep -n "if (!clerkLoaded)\|if (!isAuthenticated)" src/pages/SalesQuest.tsx
+```
+
+Confirm:
+1. tsc exits with zero errors
+2. The two early returns are still present at their expected lines
+3. No `use` hook call appears after either early return
+
+Phase 0 only touches top-of-file declarations — the hooks block inside the component is never touched. Verify anyway, every step.
+
+---
+
+### Phase 1 — Backend repository layer (planned, not yet designed)
+
+- Extract auth middleware to `server/lib/auth.ts`
+- Extract file I/O to `server/lib/repository.ts`
+- Split API routes into separate route files
+- Add aggregate endpoint for all-time totals
+
+### Phase 2 — TanStack Query (planned, not yet designed)
+
+- Install `@tanstack/react-query`
+- Add `src/lib/react-query.ts` config (mirrors bulletproof-react pattern)
+- Migrate `useEffect` fetch calls to `useQuery` / `useMutation` hooks
+- Move fetch calls out of SalesQuest.tsx into `src/features/sales/api/`
+- Adopt bulletproof-react query key pattern: `['sales', { month }]`, `['settings']`, `['bonuses', { month }]`
+
+### Phase 3 — Component extraction (planned, not yet designed)
+
+- Extract `Background` → `src/components/ui/Background.tsx`
+- Extract `Drawer` → `src/components/ui/Drawer.tsx`
+- Extract `SwipeSaleCard` → `src/components/sales/SwipeSaleCard.tsx`
+- Extract `AddBonusModal` → `src/components/bonuses/AddBonusModal.tsx`
+- Extract `SaleModal` → `src/components/sales/SaleModal.tsx`
+- Extract `SettingsScreen` → `src/components/settings/SettingsScreen.tsx`
+- Extract `ToastContainer` + `useToast` → `src/components/ui/Toast.tsx`
