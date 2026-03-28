@@ -498,12 +498,34 @@ Phase 0 only touches top-of-file declarations — the hooks block inside the com
 
 ---
 
-### Phase 1 — Backend repository layer (planned, not yet designed)
+### Phase 1 — Backend repository layer ✅ COMPLETE (2026-03-27)
 
-- Extract auth middleware to `server/lib/auth.ts`
-- Extract file I/O to `server/lib/repository.ts`
-- Split API routes into separate route files
-- Add aggregate endpoint for all-time totals
+**Implemented:** Mechanical extraction only. Zero behavior changes. Zero URL/contract changes.
+
+**Files created:**
+- `server/lib/types.ts` — 4 interfaces + 5 Zod schemas (81 lines)
+- `server/lib/auth.ts` — JWKS cache, `verifyClerkToken`, `authMiddleware` (78 lines)
+- `server/lib/repository.ts` — timezone helpers, path helpers, `ensureUserDirsOnce`, `migrateData`, `calculateStreak`, `atomicWrite`, `archiveIfNeeded` (163 lines)
+
+**Files edited:**
+- `server/api/sales-quest.ts` — inline implementations replaced with imports; 559 → 264 lines
+
+**Commits:**
+- `f0676d0` refactor: extract backend types to server/lib/types.ts (Phase 1)
+- `22c1c12` refactor: extract auth middleware to server/lib/auth.ts (Phase 1)
+- `34ab10f` refactor: extract repository utilities to server/lib/repository.ts (Phase 1)
+
+**Inconsistencies resolved during implementation:**
+- "Split API routes" in the plan — not split into separate Hono route files (would require URL changes breaking the frontend `?action=` dispatch). Correct interpretation: lib extraction only, route file stays as a thin handler layer.
+- "Add aggregate endpoint for all-time totals" — already existed (`all_time_total` action, commit `e3ffae1` pre-Phase 0). Not re-added.
+- `CommissionSnapshot`, `CommissionSnapshotSchema`, `SaleSchema` — unused in `sales-quest.ts` after extraction (only referenced by other schemas internally); removed from import to satisfy `noUnusedLocals`.
+- `getUserDataDir`, `formatDate` — called directly in GET/POST handlers; exported from `repository.ts` and added to import.
+
+**TypeScript:** `bunx tsc --noEmit` → exit 0, zero errors (verified at each step and after full completion)
+
+**Smoke audit:** All 8 endpoints verified (get_settings, get_bonuses, list_months, all_time_total, save_settings, save_bonus, delete_bonus, save_monthly_data) — contracts, auth flow, and `?action=` dispatch identical to pre-Phase-1.
+
+**Deploy readiness:** READY. No frontend changes required. No package changes. `bun.lock` untouched.
 
 ### Phase 2 — TanStack Query (planned, not yet designed)
 
