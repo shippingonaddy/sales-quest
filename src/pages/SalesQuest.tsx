@@ -4,7 +4,9 @@ import {
   Download, FileText, Flame, Pencil, Plus, Save,
   Settings, Star, TrendingUp, Upload, X, Zap,
 } from "lucide-react";
-import { useAuth, useUser, UserButton, RedirectToSignIn } from '@clerk/clerk-react';
+import type { User } from "@supabase/supabase-js";
+import { useSession } from "../lib/session";
+import { supabase } from "../lib/supabase";
 import { useAuthHeaders } from "../hooks/useAuthHeaders";
 import {
   useSettingsQuery, useMonthsQuery, useMonthDataQuery,
@@ -193,12 +195,12 @@ interface DrawerProps {
   onClose: () => void;
   screen: Screen;
   onNavigate: (s: Screen) => void;
-  clerkUser: any;
+  user: User | null;
   xp: number;
   level: number;
 }
 
-const Drawer: FC<DrawerProps> = ({ open, onClose, screen, onNavigate, clerkUser, xp, level }) => {
+const Drawer: FC<DrawerProps> = ({ open, onClose, screen, onNavigate, user, xp, level }) => {
   const navItems: { id: Screen; label: string; color: string; icon: ReactNode }[] = [
     { id: "home", label: "Sales", color: C.cyan, icon: <TrendingUp size={14} /> },
     { id: "badges", label: "Badges", color: C.amber, icon: <Award size={14} /> },
@@ -220,10 +222,10 @@ const Drawer: FC<DrawerProps> = ({ open, onClose, screen, onNavigate, clerkUser,
         {/* User */}
         <div className="flex items-center gap-3 p-4 border-b" style={{ borderColor: "rgba(127,19,236,0.1)" }}>
           <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-violet-300" style={{ background: "rgba(127,19,236,0.25)", border: "1px solid rgba(127,19,236,0.5)" }}>
-            {clerkUser?.firstName?.[0] || "A"}
+            {user?.email?.[0]?.toUpperCase() || "A"}
           </div>
           <div>
-            <p className="text-sm font-semibold text-slate-100">{clerkUser?.firstName || "Artie"}</p>
+            <p className="text-sm font-semibold text-slate-100">{user?.email?.split("@")[0] || "User"}</p>
             <p className="text-xs text-violet-400/70 uppercase tracking-wide">Level {level} · {xp} XP</p>
           </div>
         </div>
@@ -245,8 +247,12 @@ const Drawer: FC<DrawerProps> = ({ open, onClose, screen, onNavigate, clerkUser,
         {/* Footer */}
         <div className="p-4 border-t space-y-3" style={{ borderColor: "rgba(127,19,236,0.1)" }}>
           <div className="flex items-center gap-3">
-            <UserButton afterSignOutUrl="/sales-quest" />
-            <span className="text-xs text-slate-500">Account settings</span>
+            <button
+              onClick={() => supabase.auth.signOut()}
+              className="text-xs text-slate-400 hover:text-slate-100 transition-colors"
+            >
+              Sign out
+            </button>
           </div>
           <p className="text-xs text-slate-600 uppercase tracking-widest">Sales Quest v2.0</p>
         </div>
@@ -630,9 +636,9 @@ const SettingsScreen: FC<SettingsScreenProps> = ({ settings, onSave, onboarding 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function SalesQuest() {
-  const { isLoaded: clerkLoaded, isSignedIn, getToken } = useAuth();
-  const { user: clerkUser } = useUser();
-  const isAuthenticated = isSignedIn ?? false;
+  const session = useSession();
+  const user = session?.user ?? null;
+  const isAuthenticated = session !== null;
   const [state, setState] = useState<GameState>(getEmptyState());
   const [screen, setScreen] = useState<Screen>("home");
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -656,7 +662,7 @@ export default function SalesQuest() {
   // ─── TanStack Query ──────────────────────────────────────────────────────────
 
   const getAuthHeaders = useAuthHeaders();
-  const authEnabled = isAuthenticated && clerkLoaded && !!clerkUser;
+  const authEnabled = isAuthenticated && !!user;
   const monthEnabled = authEnabled && !!selectedMonth;
 
   const settingsQuery = useSettingsQuery(getAuthHeaders, authEnabled);
@@ -741,7 +747,7 @@ export default function SalesQuest() {
     setCommissionSettings(settings);
     saveSettingsToStorage(settings);
     setShowOnboarding(false);
-    if (isSignedIn) {
+    if (isAuthenticated) {
       saveSettingsMutation.mutate(settings);
     }
     // If user came from tapping Log a Sale, return them there
@@ -769,7 +775,7 @@ export default function SalesQuest() {
     const updated = [...bonuses, full];
     setBonuses(updated);
     saveBonusesToStorage(updated);
-    if (isSignedIn) {
+    if (isAuthenticated) {
       saveBonusMutation.mutate({ bonus: full });
     }
   };
@@ -778,7 +784,7 @@ export default function SalesQuest() {
     const updated = bonuses.filter(b => b.id !== id);
     setBonuses(updated);
     saveBonusesToStorage(updated);
-    if (isSignedIn) {
+    if (isAuthenticated) {
       deleteBonusMutation.mutate({ id });
     }
   };
@@ -808,9 +814,9 @@ export default function SalesQuest() {
   const runDiagnostic = async () => {
     setDiagnosticResult({ loading: true });
     try {
-      const token = await getToken();
-      if (!token) { setDiagnosticResult({ summary: "Clerk returned null token", timestamp: new Date().toISOString() }); return; }
-      const headers: any = { Authorization: `Bearer ${token}`, "X-Clerk-Token": token };
+      const token = session?.access_token;
+      if (!token) { setDiagnosticResult({ summary: "No active session token", timestamp: new Date().toISOString() }); return; }
+      const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
       const res = await fetch(`${API_ENDPOINT}?action=list_months`, { headers });
       const result = await res.json();
       setDiagnosticResult({ summary: res.ok ? "✅ JWT VALID - API accepted token" : `❌ ${result.error || "API rejected"}`, status: res.status, apiResponse: result, tokenPrefix: token.substring(0, 30) + "...", storageUsed: JSON.stringify(localStorage).length, timestamp: new Date().toISOString() });
@@ -904,24 +910,6 @@ export default function SalesQuest() {
 
   // ─── Early returns ──────────────────────────────────────────────────────────
 
-  if (!clerkLoaded) {
-    return (
-      <div className="min-h-screen flex items-center justify-center relative" style={{ background: "#0a0614" }}>
-        <Background />
-        <div className="text-center relative z-10"><h1 className="text-4xl font-bold text-white mb-3">Sales Quest</h1><p className="text-slate-400">Loading authentication...</p></div>
-      </div>
-    );
-  }
-  if (!isAuthenticated) {
-    return (
-      <div className="min-h-screen flex items-center justify-center relative" style={{ background: "#0a0614" }}>
-        <Background />
-        <div className="text-center relative z-10"><h1 className="text-4xl font-bold text-white mb-3">Sales Quest</h1><p className="text-slate-400">Redirecting to sign in...</p></div>
-        <RedirectToSignIn redirectUrl={window.location.href} />
-      </div>
-    );
-  }
-
   // ─── Computed values ────────────────────────────────────────────────────────
 
   const xp = calculateXP(state);
@@ -945,7 +933,7 @@ export default function SalesQuest() {
     <div className="min-h-screen relative overflow-x-hidden" style={{ background: "#0a0614" }}>
       <Background />
 
-      <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)} screen={screen} onNavigate={s => { setScreen(s); setDrawerOpen(false); if (s === "diagnostic") runDiagnostic(); }} clerkUser={clerkUser} xp={xp} level={level} />
+      <Drawer open={drawerOpen} onClose={() => setDrawerOpen(false)} screen={screen} onNavigate={s => { setScreen(s); setDrawerOpen(false); if (s === "diagnostic") runDiagnostic(); }} user={user} xp={xp} level={level} />
 
       <div className="relative z-10 min-h-screen flex flex-col max-w-md mx-auto px-4">
 
@@ -1255,7 +1243,7 @@ export default function SalesQuest() {
 
             {[
               { label: "Version", value: "v2.0.0" },
-              { label: "User ID", value: clerkUser?.id?.slice(0, 16) || "local" },
+              { label: "User ID", value: user?.id?.slice(0, 16) || "local" },
               { label: "Environment", value: "Production" },
             ].map(item => (
               <div key={item.label} className="flex items-center justify-between py-3 px-4 rounded-xl" style={{ background: "#111020", border: "1px solid rgba(127,19,236,0.1)" }}>

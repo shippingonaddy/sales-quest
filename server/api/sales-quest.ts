@@ -31,7 +31,7 @@ const app = new Hono()
 app.use('/*', cors({
   origin: process.env.FRONTEND_URL || '*',
   allowMethods: ['GET', 'POST', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Clerk-Token', 'X-Timezone'],
+  allowHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Timezone'],
   credentials: true,
 }))
 
