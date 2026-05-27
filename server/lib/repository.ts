@@ -1,10 +1,9 @@
-import { promises as fs } from "fs";
-import { join } from "path";
-import type { MonthlyData } from "./types";
-
-export const BASE_DATA_DIR = process.env.DATA_DIR || '/data/sales-quest';
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { MonthlyData, Sale, Bonus } from "./types";
 
 const FALLBACK_TZ = 'America/Chicago';
+
+// ─── Pure helpers (no I/O) ────────────────────────────────────────────────────
 
 export function resolveTimezone(raw: string | null | undefined): string {
   if (!raw) return FALLBACK_TZ;
@@ -14,10 +13,7 @@ export function resolveTimezone(raw: string | null | undefined): string {
 
 function getUserDateParts(date: Date, tz: string): { year: string; month: string; day: string } {
   const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: tz,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
+    timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
   }).formatToParts(date);
   const map = Object.fromEntries(parts.map(p => [p.type, p.value]));
   return { year: map.year, month: map.month, day: map.day };
@@ -33,50 +29,9 @@ export function formatDate(date: Date, tz: string): string {
   return `${year}-${month}-${day}`;
 }
 
-export function getUserDataDir(userId: string): string {
-  return join(BASE_DATA_DIR, userId);
-}
-
-export function getCurrentDataPath(userId: string): string {
-  return join(getUserDataDir(userId), "current.json");
-}
-
-export function getArchivePath(userId: string, month: string): string {
-  return join(getUserDataDir(userId), "archive", `${month}.json`);
-}
-
-export function getBonusPath(userId: string, month: string): string {
-  return join(getUserDataDir(userId), "bonuses", `${month}.json`);
-}
-
-async function ensureUserDirs(userId: string): Promise<void> {
-  const userDataDir = getUserDataDir(userId);
-  await fs.mkdir(userDataDir, { recursive: true });
-  await fs.mkdir(join(userDataDir, "archive"), { recursive: true });
-  await fs.mkdir(join(userDataDir, "bonuses"), { recursive: true });
-}
-
-const initializedUsers = new Set<string>();
-export async function ensureUserDirsOnce(userId: string): Promise<void> {
-  if (initializedUsers.has(userId)) return;
-  await ensureUserDirs(userId);
-  initializedUsers.add(userId);
-}
-
-export function migrateData(data: any): MonthlyData {
-  return {
-    ...data,
-    schemaVersion: data.schemaVersion ?? 1,
-    sales: data.sales?.map((s: any) => ({
-      backGross: 0, stockNumber: "", year: "", make: "", model: "",
-      ...s,
-    })) ?? [],
-  };
-}
-
 const isWorkDay = (date: Date): boolean => {
-  const day = date.getDay();
-  return day !== 0 && day !== 3;
+  const d = date.getDay();
+  return d !== 0 && d !== 3;
 };
 
 const getPrevWorkDay = (date: Date): Date => {
@@ -86,21 +41,144 @@ const getPrevWorkDay = (date: Date): Date => {
   return prev;
 };
 
-export const calculateStreak = async (data: MonthlyData, userId: string, tz: string): Promise<number> => {
-  const allDates = new Set<string>();
-  const loadMonthData = (md: MonthlyData) => md.sales.forEach(s => allDates.add(s.date));
-  loadMonthData(data);
+// ─── Settings ─────────────────────────────────────────────────────────────────
 
-  const [yearStr, monthStr] = data.month.split('-');
+export async function getSettings(
+  client: SupabaseClient
+): Promise<Record<string, unknown> | null> {
+  const { data } = await client.from("settings").select("data").maybeSingle();
+  return data ? (data.data as Record<string, unknown>) : null;
+}
+
+export async function saveSettings(
+  client: SupabaseClient,
+  userId: string,
+  settings: unknown
+): Promise<void> {
+  const { error } = await client
+    .from("settings")
+    .upsert({ user_id: userId, data: settings }, { onConflict: "user_id" });
+  if (error) throw new Error(`saveSettings failed: ${error.message}`);
+}
+
+// ─── Monthly data ─────────────────────────────────────────────────────────────
+
+export async function getMonthData(
+  client: SupabaseClient,
+  month: string,
+  tz: string
+): Promise<MonthlyData | null> {
+  const { data } = await client
+    .from("monthly_data").select("*").eq("month", month).maybeSingle();
+  if (!data) return null;
+  return {
+    schemaVersion: (data.schema_version as number) ?? 1,
+    month: data.month as string,
+    sales: (data.sales as Sale[]) ?? [],
+    lastActiveDate: (data.last_active_date as string) ?? formatDate(new Date(), tz),
+    streak: (data.streak as number) ?? 0,
+    lastModifiedTime: (data.last_modified_time as number) ?? 0,
+  };
+}
+
+export async function upsertMonthData(
+  client: SupabaseClient,
+  userId: string,
+  monthData: MonthlyData
+): Promise<void> {
+  const { error } = await client.from("monthly_data").upsert({
+    user_id: userId,
+    month: monthData.month,
+    sales: monthData.sales,
+    last_active_date: monthData.lastActiveDate,
+    streak: monthData.streak ?? 0,
+    last_modified_time: monthData.lastModifiedTime ?? Date.now(),
+    schema_version: monthData.schemaVersion ?? 1,
+  }, { onConflict: "user_id,month" });
+  if (error) throw new Error(`upsertMonthData failed: ${error.message}`);
+}
+
+export async function listMonths(
+  client: SupabaseClient,
+  currentMonth: string
+): Promise<string[]> {
+  const { data } = await client
+    .from("monthly_data").select("month").order("month", { ascending: false });
+  const months = (data ?? []).map((r: { month: string }) => r.month);
+  if (!months.includes(currentMonth)) months.unshift(currentMonth);
+  return months;
+}
+
+// ─── Bonuses ──────────────────────────────────────────────────────────────────
+
+type BonusRow = { id: string; date: string; amount: number; label: string };
+
+export async function getBonuses(
+  client: SupabaseClient,
+  month: string
+): Promise<Bonus[]> {
+  const { data } = await client
+    .from("bonuses").select("id, date, amount, label")
+    .eq("month", month).order("date", { ascending: true });
+  return (data ?? []).map((r: BonusRow) => ({
+    id: r.id, date: r.date, amount: Number(r.amount), label: r.label,
+  }));
+}
+
+export async function saveBonus(
+  client: SupabaseClient,
+  userId: string,
+  month: string,
+  bonus: Bonus
+): Promise<Bonus[]> {
+  const { error } = await client.from("bonuses").insert({
+    id: bonus.id, user_id: userId, month,
+    date: bonus.date, amount: bonus.amount, label: bonus.label,
+  });
+  if (error) throw new Error(`saveBonus failed: ${error.message}`);
+  return getBonuses(client, month);
+}
+
+export async function deleteBonus(
+  client: SupabaseClient,
+  month: string,
+  bonusId: string
+): Promise<Bonus[]> {
+  const { error } = await client.from("bonuses").delete().eq("id", bonusId);
+  if (error) throw new Error(`deleteBonus failed: ${error.message}`);
+  return getBonuses(client, month);
+}
+
+// ─── All-time total ───────────────────────────────────────────────────────────
+
+export async function getAllMonthSales(
+  client: SupabaseClient
+): Promise<{ month: string; sales: Sale[] }[]> {
+  const { data } = await client.from("monthly_data").select("month, sales");
+  return (data ?? []).map((r: { month: string; sales: unknown }) => ({
+    month: r.month, sales: (r.sales as Sale[]) ?? [],
+  }));
+}
+
+// ─── Streak ───────────────────────────────────────────────────────────────────
+
+export async function calculateStreak(
+  client: SupabaseClient,
+  currentMonthData: MonthlyData,
+  tz: string
+): Promise<number> {
+  const allDates = new Set<string>();
+  currentMonthData.sales.forEach(s => allDates.add(s.date));
+
+  // Load previous month to preserve cross-month streaks
+  const [yearStr, monthStr] = currentMonthData.month.split('-');
   let prevYear = parseInt(yearStr);
   let prevMonth = parseInt(monthStr) - 1;
   if (prevMonth === 0) { prevMonth = 12; prevYear -= 1; }
   const prevMonthStr = `${prevYear}-${String(prevMonth).padStart(2, '0')}`;
 
-  try {
-    const prevDataRaw = await fs.readFile(getArchivePath(userId, prevMonthStr), "utf-8");
-    loadMonthData(JSON.parse(prevDataRaw));
-  } catch {}
+  const prevData = await getMonthData(client, prevMonthStr, tz);
+  if (prevData) prevData.sales.forEach(s => allDates.add(s.date));
 
   if (allDates.size === 0) return 0;
 
@@ -109,8 +187,7 @@ export const calculateStreak = async (data: MonthlyData, userId: string, tz: str
 
   if (!allDates.has(todayStr)) {
     const yesterday = getPrevWorkDay(currentDay);
-    const yesterdayStr = formatDate(yesterday, tz);
-    if (!allDates.has(yesterdayStr)) return 0;
+    if (!allDates.has(formatDate(yesterday, tz))) return 0;
     currentDay = yesterday;
   }
 
@@ -124,40 +201,4 @@ export const calculateStreak = async (data: MonthlyData, userId: string, tz: str
     else break;
   }
   return streak;
-};
-
-export async function atomicWrite(filePath: string, content: string): Promise<void> {
-  const tmpPath = `${filePath}.tmp`;
-  await fs.writeFile(tmpPath, content);
-  await fs.rename(tmpPath, filePath);
-}
-
-export async function archiveIfNeeded(userId: string, tz: string): Promise<void> {
-  try {
-    const currentPath = getCurrentDataPath(userId);
-    const currentData = await fs.readFile(currentPath, "utf-8");
-    const data: MonthlyData = JSON.parse(currentData);
-    const currentMonth = getCurrentMonth(tz);
-
-    if (data.month !== currentMonth) {
-      const archivePath = getArchivePath(userId, data.month);
-      let archiveExists = false;
-      try { await fs.access(archivePath); archiveExists = true; } catch {}
-
-      if (!archiveExists) {
-        await atomicWrite(archivePath, currentData);
-        console.log(`Archived ${data.month} for user ${userId}`);
-      } else {
-        console.log(`Archive for ${data.month} already exists, skipping overwrite`);
-      }
-
-      const newData: MonthlyData = {
-        schemaVersion: 1, month: currentMonth, sales: [],
-        lastActiveDate: formatDate(new Date(), tz), streak: 0, lastModifiedTime: Date.now(),
-      };
-      await atomicWrite(currentPath, JSON.stringify(newData, null, 2));
-    }
-  } catch (err) {
-    console.error("archiveIfNeeded error:", err);
-  }
 }

@@ -1,29 +1,15 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { promises as fs } from "fs";
-import { join } from "path";
+import type { Context } from 'hono'
+import type { Sale, MonthlyData } from "../lib/types";
+import { MonthParamSchema, BonusSchema, SaveMonthlyDataSchema } from "../lib/types";
+import { authMiddleware, createSupabaseServerClient } from "../lib/auth";
 import {
-  Sale,
-  Bonus,
-  MonthlyData,
-  MonthParamSchema,
-  BonusSchema,
-  SaveMonthlyDataSchema,
-} from "../lib/types";
-import { authMiddleware } from "../lib/auth";
-import {
-  resolveTimezone,
-  getCurrentMonth,
-  formatDate,
-  getUserDataDir,
-  getCurrentDataPath,
-  getArchivePath,
-  getBonusPath,
-  ensureUserDirsOnce,
-  migrateData,
-  calculateStreak,
-  atomicWrite,
-  archiveIfNeeded,
+  resolveTimezone, getCurrentMonth, formatDate,
+  getSettings, saveSettings,
+  getMonthData, upsertMonthData, listMonths,
+  getBonuses, saveBonus, deleteBonus,
+  getAllMonthSales, calculateStreak,
 } from "../lib/repository";
 
 const app = new Hono()
@@ -35,229 +21,168 @@ app.use('/*', cors({
   credentials: true,
 }))
 
+function extractToken(c: Context): string {
+  const h = c.req.raw.headers.get("authorization") || c.req.header("Authorization") || "";
+  return h.startsWith("Bearer ") ? h.substring(7) : h;
+}
 
+function getUserId(c: Context): string {
+  return (c as unknown as { get: (k: string) => string }).get("userId");
+}
+
+// ─── GET ──────────────────────────────────────────────────────────────────────
 
 app.get('/', async (c) => {
   const authResult = await authMiddleware(c);
   if (authResult) return authResult;
 
-  const userId = (c as any).get("userId") as string;
-  if (!userId || typeof userId !== 'string') return c.json({ success: false, error: "Invalid user ID" }, 500);
-
+  const userId = getUserId(c);
+  const client = createSupabaseServerClient(extractToken(c));
   const tz = resolveTimezone(c.req.header('X-Timezone'));
-  await ensureUserDirsOnce(userId);
-  await archiveIfNeeded(userId, tz);
-
   const action = c.req.query("action");
   const rawMonth = c.req.query("month");
   const currentMonth = getCurrentMonth(tz);
 
   let requestedMonth: string | undefined;
   if (rawMonth) {
-    const monthValidation = MonthParamSchema.safeParse(rawMonth);
-    if (!monthValidation.success) return c.json({ success: false, error: "Invalid month format" }, 400);
-    requestedMonth = monthValidation.data;
+    const v = MonthParamSchema.safeParse(rawMonth);
+    if (!v.success) return c.json({ success: false, error: "Invalid month format" }, 400);
+    requestedMonth = v.data;
   }
 
   if (action === "get_settings") {
-    try {
-      const raw = await fs.readFile(join(getUserDataDir(userId), "settings.json"), "utf-8");
-      return c.json({ success: true, settings: JSON.parse(raw) });
-    } catch { return c.json({ success: true, settings: null }); }
+    const settings = await getSettings(client);
+    return c.json({ success: true, settings });
   }
 
   if (action === "get_bonuses") {
     const bonusMonth = requestedMonth || currentMonth;
-    try {
-      const raw = await fs.readFile(getBonusPath(userId, bonusMonth), "utf-8");
-      return c.json({ success: true, bonuses: JSON.parse(raw), month: bonusMonth });
-    } catch { return c.json({ success: true, bonuses: [], month: bonusMonth }); }
+    const bonuses = await getBonuses(client, bonusMonth);
+    return c.json({ success: true, bonuses, month: bonusMonth });
   }
 
   if (action === "list_months") {
-    const months: string[] = [currentMonth];
-    try {
-      const archiveDir = join(getUserDataDir(userId), "archive");
-      const files = await fs.readdir(archiveDir);
-      months.push(...files.filter(f => f.endsWith('.json')).map(f => f.replace('.json', '')).sort().reverse());
-    } catch {}
+    const months = await listMonths(client, currentMonth);
     return c.json({ success: true, months, currentMonth });
   }
 
   if (action === "all_time_total") {
-    // Load settings for commission calculation
-    let settings: any = {};
-    try {
-      settings = JSON.parse(await fs.readFile(join(getUserDataDir(userId), "settings.json"), "utf-8"));
-    } catch {}
+    const settingsData = await getSettings(client) ?? {};
 
-    const computeCommission = (sale: Sale, cfg: any): number => {
-      const snap = sale.commissionSnapshot ?? cfg;
+    const computeCommission = (sale: Sale, cfg: Record<string, unknown>): number => {
+      const snap = (sale.commissionSnapshot ?? cfg) as Record<string, unknown>;
       let base = 0;
-      if (snap.type === "flat") base = snap.flatAmount ?? 0;
-      else if (snap.type === "flat_plus_down") base = (snap.flatBase ?? 0) + (sale.downPayment || 0) * ((snap.downPercent ?? 0) / 100);
-      else if (snap.type === "front_back_percent") base = (sale.frontGross || 0) * ((snap.frontendPercent ?? 0) / 100) + (sale.backGross || 0) * ((snap.backendPercent ?? 0) / 100);
+      if (snap.type === "flat")
+        base = (snap.flatAmount as number) ?? 0;
+      else if (snap.type === "flat_plus_down")
+        base = ((snap.flatBase as number) ?? 0) + (sale.downPayment || 0) * (((snap.downPercent as number) ?? 0) / 100);
+      else if (snap.type === "front_back_percent")
+        base = (sale.frontGross || 0) * (((snap.frontendPercent as number) ?? 0) / 100)
+             + (sale.backGross  || 0) * (((snap.backendPercent  as number) ?? 0) / 100);
       return sale.split ? base / 2 : base;
     };
 
-    let total = 0;
-
-    // Current month
-    try {
-      const data: MonthlyData = JSON.parse(await fs.readFile(getCurrentDataPath(userId), "utf-8"));
-      total += data.sales.reduce((sum, s) => sum + computeCommission(s, settings), 0);
-    } catch {}
-
-    // All archived months
-    try {
-      const archiveDir = join(getUserDataDir(userId), "archive");
-      const files = (await fs.readdir(archiveDir)).filter(f => f.endsWith('.json'));
-      await Promise.all(files.map(async (file) => {
-        try {
-          const data: MonthlyData = JSON.parse(await fs.readFile(join(archiveDir, file), "utf-8"));
-          const monthTotal = data.sales.reduce((sum, s) => sum + computeCommission(s, settings), 0);
-          total += monthTotal;
-        } catch {}
-      }));
-    } catch {}
-
+    const allMonths = await getAllMonthSales(client);
+    const total = allMonths.reduce(
+      (sum, { sales }) => sum + sales.reduce((s, sale) => s + computeCommission(sale, settingsData), 0),
+      0
+    );
     return c.json({ success: true, total });
   }
 
+  // Default: load month data
   const isArchived = !!(requestedMonth && requestedMonth !== currentMonth);
-  const dataPath = isArchived ? getArchivePath(userId, requestedMonth!) : getCurrentDataPath(userId);
+  const month = requestedMonth || currentMonth;
+  const data = await getMonthData(client, month, tz);
 
-  try {
-    const data = await fs.readFile(dataPath, "utf-8");
-    let monthData: MonthlyData = JSON.parse(data);
-    monthData = migrateData(monthData);
-
-    if (!isArchived) {
-      monthData.streak = await calculateStreak(monthData, userId, tz);
-    }
-
-    return c.json({ success: true, data: monthData, isArchived, currentMonth });
-  } catch (err) {
+  if (!data) {
     if (isArchived) return c.json({ success: false, error: "Month not found", currentMonth }, 404);
     const emptyData: MonthlyData = {
       schemaVersion: 1, month: currentMonth, sales: [],
       lastActiveDate: formatDate(new Date(), tz), streak: 0, lastModifiedTime: Date.now(),
     };
-    await atomicWrite(getCurrentDataPath(userId), JSON.stringify(emptyData, null, 2));
+    await upsertMonthData(client, userId, emptyData);
     return c.json({ success: true, data: emptyData, isArchived: false, currentMonth });
   }
+
+  if (!isArchived) data.streak = await calculateStreak(client, data, tz);
+  return c.json({ success: true, data, isArchived, currentMonth });
 });
+
+// ─── POST ─────────────────────────────────────────────────────────────────────
 
 app.post('/', async (c) => {
   const authResult = await authMiddleware(c);
   if (authResult) return authResult;
 
-  const userId = (c as any).get("userId") as string;
-  if (!userId || typeof userId !== 'string') return c.json({ success: false, error: "Invalid user ID" }, 500);
-
+  const userId = getUserId(c);
+  const client = createSupabaseServerClient(extractToken(c));
   const tz = resolveTimezone(c.req.header('X-Timezone'));
-  await ensureUserDirsOnce(userId);
-
   const action = c.req.query("action");
   const currentMonth = getCurrentMonth(tz);
 
   if (action === "save_settings") {
-    let body;
+    let body: unknown;
     try { body = await c.req.json(); } catch { return c.json({ success: false, error: "Invalid JSON body" }, 400); }
-    await atomicWrite(join(getUserDataDir(userId), "settings.json"), JSON.stringify(body, null, 2));
+    await saveSettings(client, userId, body);
     return c.json({ success: true });
   }
 
-  if (action === "save_bonus") {
+  if (action === "save_bonus" || action === "delete_bonus") {
     const rawMonth = c.req.query("month");
     let bonusMonth = currentMonth;
-
     if (rawMonth) {
-      const monthValidation = MonthParamSchema.safeParse(rawMonth);
-      if (!monthValidation.success) return c.json({ success: false, error: "Invalid month format" }, 400);
-      if (monthValidation.data !== currentMonth) {
-        return c.json({ success: false, error: "Cannot modify archived bonus months" }, 403);
-      }
-      bonusMonth = monthValidation.data;
+      const v = MonthParamSchema.safeParse(rawMonth);
+      if (!v.success) return c.json({ success: false, error: "Invalid month format" }, 400);
+      if (v.data !== currentMonth) return c.json({ success: false, error: "Cannot modify archived bonus months" }, 403);
+      bonusMonth = v.data;
     }
 
-    let body;
+    let body: Record<string, unknown>;
     try { body = await c.req.json(); } catch { return c.json({ success: false, error: "Invalid JSON body" }, 400); }
-    const validation = BonusSchema.safeParse(body);
-    if (!validation.success) return c.json({ success: false, error: "Invalid bonus data", details: validation.error.flatten() }, 400);
 
-    let bonuses: Bonus[] = [];
-    try { bonuses = JSON.parse(await fs.readFile(getBonusPath(userId, bonusMonth), "utf-8")); } catch {}
-    bonuses.push(validation.data);
-    await atomicWrite(getBonusPath(userId, bonusMonth), JSON.stringify(bonuses, null, 2));
+    if (action === "save_bonus") {
+      const v = BonusSchema.safeParse(body);
+      if (!v.success) return c.json({ success: false, error: "Invalid bonus data", details: v.error.flatten() }, 400);
+      const bonuses = await saveBonus(client, userId, bonusMonth, v.data);
+      return c.json({ success: true, bonuses, month: bonusMonth });
+    }
+
+    if (!body.id || typeof body.id !== "string") return c.json({ success: false, error: "Missing bonus id" }, 400);
+    const bonuses = await deleteBonus(client, bonusMonth, body.id);
     return c.json({ success: true, bonuses, month: bonusMonth });
   }
 
-  if (action === "delete_bonus") {
-    const rawMonth = c.req.query("month");
-    let bonusMonth = currentMonth;
-
-    if (rawMonth) {
-      const monthValidation = MonthParamSchema.safeParse(rawMonth);
-      if (!monthValidation.success) return c.json({ success: false, error: "Invalid month format" }, 400);
-      if (monthValidation.data !== currentMonth) {
-        return c.json({ success: false, error: "Cannot modify archived bonus months" }, 403);
-      }
-      bonusMonth = monthValidation.data;
-    }
-
-    let body: { id?: string };
-    try { body = await c.req.json(); } catch { return c.json({ success: false, error: "Invalid JSON body" }, 400); }
-    if (!body.id) return c.json({ success: false, error: "Missing bonus id" }, 400);
-
-    let bonuses: Bonus[] = [];
-    try { bonuses = JSON.parse(await fs.readFile(getBonusPath(userId, bonusMonth), "utf-8")); } catch {}
-    bonuses = bonuses.filter(b => b.id !== body.id);
-    await atomicWrite(getBonusPath(userId, bonusMonth), JSON.stringify(bonuses, null, 2));
-    return c.json({ success: true, bonuses, month: bonusMonth });
-  }
-
+  // Default: save monthly data
   const rawMonth = c.req.query("month");
-
   if (rawMonth) {
-    const monthValidation = MonthParamSchema.safeParse(rawMonth);
-    if (!monthValidation.success) return c.json({ success: false, error: "Invalid month format" }, 400);
-    if (monthValidation.data !== currentMonth) {
-      return c.json({ success: false, error: "Cannot modify archived months" }, 403);
-    }
+    const v = MonthParamSchema.safeParse(rawMonth);
+    if (!v.success) return c.json({ success: false, error: "Invalid month format" }, 400);
+    if (v.data !== currentMonth) return c.json({ success: false, error: "Cannot modify archived months" }, 403);
   }
 
-  let body;
+  let body: unknown;
   try { body = await c.req.json(); } catch { return c.json({ success: false, error: "Invalid JSON body" }, 400); }
 
   const validation = SaveMonthlyDataSchema.safeParse(body);
-  if (!validation.success) {
-    return c.json({ success: false, error: "Validation failed", details: validation.error.flatten() }, 400);
+  if (!validation.success) return c.json({ success: false, error: "Validation failed", details: validation.error.flatten() }, 400);
+
+  const existing = await getMonthData(client, currentMonth, tz);
+  const serverTime = existing?.lastModifiedTime ?? 0;
+  const clientTime = validation.data.lastModifiedTime ?? 0;
+  if (serverTime > 0 && clientTime > 0 && serverTime > clientTime + 60000) {
+    return c.json({ success: false, error: "Data is out of sync. Please refresh.", serverTime, clientTime }, 409);
   }
 
-  const currentPath = getCurrentDataPath(userId);
-  let existingData: Partial<MonthlyData> = {};
-
-  try {
-    existingData = JSON.parse(await fs.readFile(currentPath, "utf-8"));
-    const serverTime = existingData.lastModifiedTime || 0;
-    const clientTime = validation.data.lastModifiedTime || 0;
-    const CLOCK_SKEW_TOLERANCE = 60000;
-    if (serverTime > 0 && clientTime > 0 && serverTime > clientTime + CLOCK_SKEW_TOLERANCE) {
-      return c.json({ success: false, error: "Data is out of sync. Please refresh.", serverTime, clientTime }, 409);
-    }
-  } catch {}
-
   const data: MonthlyData = {
-    schemaVersion: 1,
-    month: currentMonth,
+    schemaVersion: 1, month: currentMonth,
     sales: validation.data.sales,
     lastActiveDate: formatDate(new Date(), tz),
     lastModifiedTime: Date.now(),
   };
 
-  data.streak = await calculateStreak(data, userId, tz);
-  await atomicWrite(currentPath, JSON.stringify(data, null, 2));
+  data.streak = await calculateStreak(client, data, tz);
+  await upsertMonthData(client, userId, data);
   return c.json({ success: true, data, isArchived: false, currentMonth });
 });
 

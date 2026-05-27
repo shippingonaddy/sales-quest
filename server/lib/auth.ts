@@ -1,20 +1,33 @@
-import { jwtVerify } from "jose";
 import type { Context } from "hono";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-const jwtSecret = process.env.SUPABASE_JWT_SECRET;
-if (!jwtSecret) {
-  throw new Error("Missing SUPABASE_JWT_SECRET environment variable");
+const supabaseUrl = process.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+const supabaseServiceKey = process.env.SUPABASE_SECRET_KEY;
+
+if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceKey) {
+  throw new Error(
+    "Missing required env vars: VITE_SUPABASE_URL, VITE_SUPABASE_PUBLISHABLE_KEY, SUPABASE_SECRET_KEY"
+  );
 }
 
-const secret = new TextEncoder().encode(jwtSecret);
+// Admin client — token verification only, never used for data queries
+const adminClient = createClient(supabaseUrl, supabaseServiceKey, {
+  auth: { persistSession: false, autoRefreshToken: false },
+});
 
 export async function verifySupabaseToken(token: string): Promise<string | null> {
-  try {
-    const { payload } = await jwtVerify(token, secret, { algorithms: ["HS256"] });
-    return typeof payload.sub === "string" ? payload.sub : null;
-  } catch {
-    return null;
-  }
+  const { data: { user }, error } = await adminClient.auth.getUser(token);
+  if (error || !user) return null;
+  return user.id;
+}
+
+// Per-request client — carries the user JWT so RLS applies automatically
+export function createSupabaseServerClient(token: string): SupabaseClient {
+  return createClient(supabaseUrl!, supabaseAnonKey!, {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
 }
 
 export async function authMiddleware(c: Context): Promise<Response | void> {
