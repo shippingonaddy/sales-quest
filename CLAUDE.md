@@ -47,6 +47,8 @@
 - Use parallel `Promise.all` for independent async calls
 - Handle errors explicitly — never swallow silently
 - One task at a time. Finish it. Commit. Then next.
+- Before editing any file, grep it first: `grep -n "keyword" path/to/file`
+- Before diagnosing any error, grep SOLVED.md for related keywords first
 
 ---
 
