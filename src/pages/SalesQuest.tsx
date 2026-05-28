@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, useMemo, type FC, type ReactNode, type TouchEvent } from "react";
+import { useEffect, useRef, useState, useMemo, type FC, type ReactNode, type TouchEvent } from "react";
 import {
   Award, ChevronLeft, ChevronRight,
   Download, FileText, Flame, Pencil, Plus, Save,
@@ -17,37 +17,13 @@ import {
   useSaveBonusMutation, useDeleteBonusMutation,
 } from "../hooks/useSalesMutations";
 
-import type { Sale, Bonus, GameState, CommissionSettings, Screen, ToastVariant, Toast } from "../types";
+import type { Sale, Bonus, GameState, CommissionSettings, Screen } from "../types";
 import { Background } from "../components/Background";
+import { useToast } from "../hooks/useToast";
+import { ToastContainer } from "../components/ToastContainer";
 
 // ─── Toast ────────────────────────────────────────────────────────────────────
 
-function useToast() {
-  const [toasts, setToasts] = useState<Toast[]>([]);
-  const counter = useRef(0);
-  const show = useCallback((message: string, variant: ToastVariant = "info") => {
-    const id = ++counter.current;
-    setToasts(prev => [...prev, { id, message, variant }]);
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3500);
-  }, []);
-  return { toasts, show };
-}
-
-const ToastContainer: FC<{ toasts: Toast[] }> = ({ toasts }) => (
-  <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] flex flex-col gap-2 w-full max-w-sm px-4 pointer-events-none">
-    {toasts.map(t => (
-      <div key={t.id} className="px-4 py-3 rounded-xl text-sm font-medium shadow-lg pointer-events-auto animate-in fade-in slide-in-from-top-2"
-        style={{
-          background: t.variant === "error" ? "rgba(239,68,68,0.15)" : t.variant === "success" ? "rgba(16,185,129,0.15)" : "rgba(127,19,236,0.15)",
-          border: `1px solid ${t.variant === "error" ? "rgba(239,68,68,0.4)" : t.variant === "success" ? "rgba(16,185,129,0.4)" : "rgba(127,19,236,0.4)"}`,
-          color: t.variant === "error" ? "#f87171" : t.variant === "success" ? "#34d399" : "#c4b5fd",
-          backdropFilter: "blur(12px)",
-        }}>
-        {t.message}
-      </div>
-    ))}
-  </div>
-);
 
 import { XP_PER_LEVEL, API_ENDPOINT, SETTINGS_KEY, BONUS_KEY, DEFAULT_SETTINGS } from "../lib/constants";
 import { C, RGB, GLASS, hexToRgb } from "../lib/theme";
