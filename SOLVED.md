@@ -259,3 +259,83 @@ And always run `vercel logs` first — the browser error is never enough.
 - **Keywords:** vercel, token, scope, team, permission, API, vcp_
 
 ---
+
+### 2026-05-28 — Vercel Edge Function: Hono Subrouter Full Operational Stack (non-Next.js)
+
+**THE MECHANICS (What & How):**
+
+*   **The Fix:** The backend API (`/api/sales-quest`) was broken in three sequential bugs, each masking the next. All three were identified and resolved in sequence. The function now runs as a true Vercel Edge Function, esbuild-bundled, with correct Hono routing and a valid response shape. Confirmed via `vercel logs` (all `ε`-prefixed, zero errors) and live traffic showing `200` on authenticated requests and `401` on unauthenticated — no 500s, no 404s.
+
+*   **The Execution:**
+    *   **`/api/sales-quest.ts`** (the only file modified across all three fixes):
+        *   **Bug 1 fixed:** `export const runtime = 'edge'` → `export const config = { runtime: 'edge' }`. The former is Next.js App Router only. Vercel was silently running the function as Node.js serverless (AWS Lambda `/var/task/`), which does not bundle with esbuild. `server/` was never uploaded. Relative imports crashed at runtime with `ERR_MODULE_NOT_FOUND`.
+        *   **Bug 2 fixed:** `export default app` → `export default handle(app)` using `handle` from `hono/vercel`. Vercel's Edge runtime calls the default export as `fn(request, context)`. A raw Hono app instance is not callable in that form. Resulted in "The Edge Function did not return a Response."
+        *   **Bug 3 fixed:** Wrapped imported subrouter in a parent Hono app with `app.route('/api/sales-quest', salesQuestApi)`. Vercel passes the full URL path (`/api/sales-quest`) to the Edge Function — Hono does not strip it. The subrouter's routes are defined at `'/'`. Without the parent mount, Hono matched `/api/sales-quest` against `/` and returned 404. Pattern mirrors `server/index.ts` line 17 exactly.
+
+    *   **Final confirmed state of `/api/sales-quest.ts`:**
+        ```ts
+        import { Hono } from 'hono'
+        import { handle } from 'hono/vercel'
+        import salesQuestApi from '../server/api/sales-quest'
+
+        const app = new Hono()
+        app.route('/api/sales-quest', salesQuestApi)
+
+        export const config = { runtime: 'edge' }
+        export default handle(app)
+        ```
+    *   **`vercel.json`** — unchanged, correct:
+        ```json
+        { "buildCommand": "bunx vite build", "outputDirectory": "dist" }
+        ```
+    *   **`CLAUDE.md`** — two rules added to ALWAYS section:
+        `Before editing any file, grep it first` and `Before diagnosing any error, grep SOLVED.md for related keywords first`.
+
+---
+
+**THE GUARDRAILS (Blood-in, Blood-out Rules):**
+
+*   **Off-Limits:** Do not touch the following — they are confirmed correct and operational:
+    *   `/api/sales-quest.ts` — the Edge Function entrypoint. All three bugs are fixed. Any revert destroys the function.
+    *   `server/lib/auth.ts` — uses `adminClient.auth.getUser(token)`. No jose. No `SUPABASE_JWT_SECRET`. Do not change the verification method.
+    *   `server/lib/repository.ts` — Supabase Postgres, no filesystem I/O. Do not add fs/path imports.
+    *   `server/api/sales-quest.ts` — Hono routes at `'/'`. Do not change the route paths or the `export default app` at the bottom.
+    *   `vercel.json` — do not add `routes`, `rewrites`, or `functions` keys. Current config is sufficient and confirmed working.
+    *   `src/pages/SalesQuest.tsx` — extraction target for Phase 3. Add nothing here.
+
+*   **Fragile Interdependencies:**
+    *   The mount path in `/api/sales-quest.ts` (`app.route('/api/sales-quest', salesQuestApi)`) **must match** `server/index.ts` line 17 (`app.route('/api/sales-quest', salesQuestApi)`). If either changes, the other must change to match. Verify with: `grep -n "route\|sales-quest" server/index.ts api/sales-quest.ts`
+    *   `handle(app)` from `hono/vercel` is load-bearing. Confirmed present at `node_modules/hono/dist/adapter/vercel/`. Do not swap for `app.fetch`, `app`, or any other export shape.
+    *   `export const config = { runtime: 'edge' }` must remain. If it disappears, Vercel silently reverts to Node.js serverless, esbuild bundling stops, and `ERR_MODULE_NOT_FOUND` returns.
+    *   `server/lib/auth.ts` throws at module load if `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, or `SUPABASE_SECRET_KEY` are missing. All three are confirmed set in Vercel as sensitive env vars. Do not rename them.
+
+*   **Anti-Regressions:**
+    *   **DO NOT REVERT** `export const config` to `export const runtime`. The Next.js convention is permanently wrong for this project.
+    *   **DO NOT REVERT** `handle(app)` to `export default app`. The raw Hono instance does not satisfy Vercel's Edge Function calling convention.
+    *   **DO NOT REMOVE** the `app.route('/api/sales-quest', salesQuestApi)` wrapper. Without it, all routes 404.
+    *   **DO NOT FOLLOW** the SOLVED.md entry titled `[DEPLOY] Hono + Vercel Edge — SUPERSEDED`. It predates production testing and is factually wrong. The entry immediately below it is the confirmed truth.
+    *   **DO NOT** add `jose` or `SUPABASE_JWT_SECRET`-based JWT verification. `adminClient.auth.getUser(token)` is the only correct pattern.
+
+---
+
+**RESUME DIRECTIVES:**
+
+*   **First action — verify nothing regressed before writing any code:**
+    ```bash
+    curl -s -o /dev/null -w "%{http_code}" https://sales-quest-app-ci4d.vercel.app/api/sales-quest
+    ```
+    Expected: `401`. If `500` or `404` — stop, do not touch code, run `vercel logs` first:
+    ```bash
+    npx vercel@latest logs https://sales-quest-app-ci4d.vercel.app --token=<your-vercel-token>
+    ```
+    Map the error to the correct SOLVED.md entry using:
+    ```bash
+    grep "ERR_MODULE_NOT_FOUND" SOLVED.md      # → Bug 1
+    grep "did not return a Response" SOLVED.md  # → Bug 2
+    grep "hono.*404\|404.*hono" SOLVED.md      # → Bug 3
+    ```
+
+*   **Active phase — Phase 3: Component extraction from `SalesQuest.tsx`.**
+    The file is ~1,294 lines. Extract one component at a time. Commit after each. Never add logic — extract only. Run `bunx tsc --noEmit` after every change. Do not start until the `401` check above passes.
+
+---
