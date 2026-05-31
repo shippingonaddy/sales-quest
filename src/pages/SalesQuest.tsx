@@ -569,7 +569,6 @@ export default function SalesQuest() {
                 <div>
                   <p className="text-2xl font-bold text-slate-50">{state.sales.length}</p>
                   <p className="text-[10px] uppercase tracking-wide mt-1" style={{ color: `rgba(${RGB.violet}, 0.5)` }}>Units this month</p>
-                  <p className="text-[10px] uppercase tracking-wide mt-0.5" style={{ color: `rgba(${RGB.violet}, 0.5)` }}>Total Down Collected: ${state.sales.reduce((t, s) => t + (s.downPayment || 0), 0).toFixed(0)}</p>
                 </div>
               </div>
               <div className="p-3 flex flex-col justify-between" style={{ ...(streakAtRisk ? GLASS.red : GLASS.orange), minHeight: 80, transition: "background 300ms ease, border-color 300ms ease" }}>
@@ -583,6 +582,12 @@ export default function SalesQuest() {
                     {streakAtRisk ? "At risk!" : (state.streak || 0) === 0 ? "Start today!" : "Days active"}
                   </p>
                 </div>
+              </div>
+
+              {/* Total Down Collected */}
+              <div className="col-span-2 flex items-center justify-between p-3" style={{ ...GLASS.green, minHeight: 52 }}>
+                <p className="text-[11px] font-medium uppercase tracking-widest" style={{ color: `rgba(${RGB.green}, 0.65)` }}>Total Down Collected</p>
+                <p className="text-lg font-bold text-slate-50">${state.sales.reduce((t, s) => t + (s.downPayment || 0), 0).toFixed(0)}</p>
               </div>
 
               {/* XP bar */}
