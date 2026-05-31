@@ -30,6 +30,7 @@ import { SettingsScreen } from "../components/SettingsScreen";
 
 
 import { XP_PER_LEVEL, API_ENDPOINT, SETTINGS_KEY, BONUS_KEY, DEFAULT_SETTINGS } from "../lib/constants";
+import { getLevelTitle } from "../lib/levels";
 import { C, RGB, GLASS, hexToRgb } from "../lib/theme";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -498,7 +499,6 @@ export default function SalesQuest() {
         <div className="flex items-center justify-between pt-12 pb-3">
           <div>
             <h1 className="text-base font-bold text-slate-100 uppercase tracking-widest">Sales Quest</h1>
-            <p className="text-[9px] uppercase tracking-widest mt-0.5" style={{ color: "rgba(127,19,236,0.85)" }}>Galactic Sector 7-G</p>
           </div>
           <div className="flex items-center gap-3">
             <span className={`text-[9px] uppercase tracking-widest font-medium ${saveStatus === "saved" ? "text-emerald-500" : saveStatus === "saving" ? "text-violet-400" : saveStatus === "conflict" ? "text-red-400" : "text-amber-400"}`}>
@@ -589,7 +589,7 @@ export default function SalesQuest() {
               <div className="col-span-2 p-3" style={{ ...GLASS.purple, minHeight: 60, justifyContent: "center", display: "flex", flexDirection: "column" }}>
                 <div className="flex justify-between items-baseline mb-1.5">
                   <p className="text-[11px] font-medium uppercase tracking-widest" style={{ color: `rgba(${RGB.violet}, 0.65)` }}>
-                    <span className="text-slate-100 font-bold text-xs">Level {level}</span> Voyager — {xp} XP
+                    <span className="text-slate-100 font-bold text-xs">Level {level}</span> {getLevelTitle(level)} — {xp} XP
                   </p>
                   <span className="text-[10px]" style={{ color: `rgba(${RGB.violet}, 0.4)` }}>{xpRemaining} to lvl {level + 1}</span>
                 </div>
