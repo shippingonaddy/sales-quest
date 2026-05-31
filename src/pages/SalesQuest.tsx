@@ -30,6 +30,8 @@ import { SettingsScreen } from "../components/SettingsScreen";
 
 
 import { XP_PER_LEVEL, API_ENDPOINT, SETTINGS_KEY, BONUS_KEY, DEFAULT_SETTINGS } from "../lib/constants";
+import { getLevelTitle } from "../lib/levels";
+import { saveBonus } from "../lib/api-client";
 import { C, RGB, GLASS, hexToRgb } from "../lib/theme";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -130,10 +132,10 @@ const Drawer: FC<DrawerProps> = ({ open, onClose, screen, onNavigate, user, xp, 
         {/* User */}
         <div className="flex items-center gap-3 p-4 border-b" style={{ borderColor: "rgba(127,19,236,0.1)" }}>
           <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-violet-300" style={{ background: "rgba(127,19,236,0.25)", border: "1px solid rgba(127,19,236,0.5)" }}>
-            {user?.email?.[0]?.toUpperCase() || "A"}
+            {(user?.user_metadata?.full_name?.[0] ?? user?.email?.[0] ?? "A").toUpperCase()}
           </div>
           <div>
-            <p className="text-sm font-semibold text-slate-100">{user?.email?.split("@")[0] || "User"}</p>
+            <p className="text-sm font-semibold text-slate-100">{user?.user_metadata?.full_name ?? user?.email?.split("@")[0] ?? "User"}</p>
             <p className="text-xs text-violet-400/70 uppercase tracking-wide">Level {level} · {xp} XP</p>
           </div>
         </div>
@@ -404,7 +406,13 @@ export default function SalesQuest() {
         for (const [m, sales] of Object.entries(salesByMonth)) monthsData[m] = { sales, lastActiveDate: ld.lastActiveDate || getLocalDateString(), streak: ld.streak || 0 };
       } else monthsData = { [getCurrentMonth()]: imported };
 
-      if (imported.bonuses) { setBonuses(imported.bonuses); saveBonusesToStorage(imported.bonuses); }
+      if (imported.bonuses) {
+        setBonuses(imported.bonuses);
+        saveBonusesToStorage(imported.bonuses);
+        for (const bonus of imported.bonuses) {
+          await saveBonus(getAuthHeaders, bonus, getCurrentMonth());
+        }
+      }
 
       const current = getCurrentMonth();
       const headers = await getAuthHeaders();
@@ -498,7 +506,6 @@ export default function SalesQuest() {
         <div className="flex items-center justify-between pt-12 pb-3">
           <div>
             <h1 className="text-base font-bold text-slate-100 uppercase tracking-widest">Sales Quest</h1>
-            <p className="text-[9px] uppercase tracking-widest mt-0.5" style={{ color: "rgba(127,19,236,0.85)" }}>Galactic Sector 7-G</p>
           </div>
           <div className="flex items-center gap-3">
             <span className={`text-[9px] uppercase tracking-widest font-medium ${saveStatus === "saved" ? "text-emerald-500" : saveStatus === "saving" ? "text-violet-400" : saveStatus === "conflict" ? "text-red-400" : "text-amber-400"}`}>
@@ -569,7 +576,6 @@ export default function SalesQuest() {
                 <div>
                   <p className="text-2xl font-bold text-slate-50">{state.sales.length}</p>
                   <p className="text-[10px] uppercase tracking-wide mt-1" style={{ color: `rgba(${RGB.violet}, 0.5)` }}>Units this month</p>
-                  <p className="text-[10px] uppercase tracking-wide mt-0.5" style={{ color: `rgba(${RGB.violet}, 0.5)` }}>Total Down Collected: ${state.sales.reduce((t, s) => t + (s.downPayment || 0), 0).toFixed(0)}</p>
                 </div>
               </div>
               <div className="p-3 flex flex-col justify-between" style={{ ...(streakAtRisk ? GLASS.red : GLASS.orange), minHeight: 80, transition: "background 300ms ease, border-color 300ms ease" }}>
@@ -585,11 +591,17 @@ export default function SalesQuest() {
                 </div>
               </div>
 
+              {/* Total Down Collected */}
+              <div className="col-span-2 flex items-center justify-between p-3" style={{ ...GLASS.green, minHeight: 52 }}>
+                <p className="text-[11px] font-medium uppercase tracking-widest" style={{ color: `rgba(${RGB.green}, 0.65)` }}>Total Down Collected</p>
+                <p className="text-lg font-bold text-slate-50">${state.sales.reduce((t, s) => t + (s.downPayment || 0), 0).toFixed(0)}</p>
+              </div>
+
               {/* XP bar */}
               <div className="col-span-2 p-3" style={{ ...GLASS.purple, minHeight: 60, justifyContent: "center", display: "flex", flexDirection: "column" }}>
                 <div className="flex justify-between items-baseline mb-1.5">
                   <p className="text-[11px] font-medium uppercase tracking-widest" style={{ color: `rgba(${RGB.violet}, 0.65)` }}>
-                    <span className="text-slate-100 font-bold text-xs">Level {level}</span> Voyager — {xp} XP
+                    <span className="text-slate-100 font-bold text-xs">Level {level}</span> {getLevelTitle(level)} — {xp} XP
                   </p>
                   <span className="text-[10px]" style={{ color: `rgba(${RGB.violet}, 0.4)` }}>{xpRemaining} to lvl {level + 1}</span>
                 </div>
@@ -771,7 +783,7 @@ export default function SalesQuest() {
         {/* ── SETTINGS SCREEN ── */}
         {screen === "settings" && (
           <div className="flex-1 mt-2">
-            <SettingsScreen settings={commissionSettings} onSave={handleSaveSettings} onboarding={showOnboarding} />
+            <SettingsScreen settings={commissionSettings} onSave={handleSaveSettings} onboarding={showOnboarding} initialDisplayName={user?.user_metadata?.full_name ?? ""} onToast={showToast} />
           </div>
         )}
 
