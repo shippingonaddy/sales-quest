@@ -2,16 +2,34 @@ import { useState, type FC } from "react";
 import { Save } from "lucide-react";
 import type { CommissionSettings } from "../types";
 import { C } from "../lib/theme";
+import { supabase } from "../lib/supabase";
 
 interface SettingsScreenProps {
   settings: CommissionSettings;
   onSave: (s: CommissionSettings) => void;
   onboarding?: boolean;
+  initialDisplayName?: string;
+  onToast?: (msg: string, type: "success" | "error") => void;
 }
 
-export const SettingsScreen: FC<SettingsScreenProps> = ({ settings, onSave, onboarding }) => {
+export const SettingsScreen: FC<SettingsScreenProps> = ({ settings, onSave, onboarding, initialDisplayName = "", onToast }) => {
   const [local, setLocal] = useState<CommissionSettings>({ ...settings });
   const [saved, setSaved] = useState(false);
+  const [displayName, setDisplayName] = useState(initialDisplayName);
+  const [nameSaving, setNameSaving] = useState(false);
+
+  const handleSaveName = async () => {
+    if (!displayName.trim()) return;
+    setNameSaving(true);
+    const { error } = await supabase.auth.updateUser({ data: { full_name: displayName.trim() } });
+    setNameSaving(false);
+    if (error) { onToast?.("Failed to save name.", "error"); return; }
+    onToast?.("Name saved.", "success");
+  };
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+  };
 
   const handleSave = () => {
     onSave({ ...local, configured: true });
@@ -33,6 +51,38 @@ export const SettingsScreen: FC<SettingsScreenProps> = ({ settings, onSave, onbo
 
   return (
     <div className="space-y-1 pb-8">
+      <p className={secLabel}>Account</p>
+      <div className="p-4 rounded-xl space-y-3" style={{ background: "#111020", border: "1px solid rgba(127,19,236,0.12)" }}>
+        <div>
+          <label className="text-[9px] text-slate-500 uppercase tracking-wide block mb-1">Display name</label>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={displayName}
+              onChange={e => setDisplayName(e.target.value)}
+              placeholder="Your name"
+              className={inp + " flex-1"}
+              style={inpStyle}
+            />
+            <button
+              onClick={handleSaveName}
+              disabled={nameSaving || !displayName.trim()}
+              className="px-4 rounded-lg text-sm font-medium text-slate-100 disabled:opacity-40"
+              style={{ background: "rgba(127,19,236,0.2)", border: "1px solid rgba(127,19,236,0.4)" }}
+            >
+              {nameSaving ? "…" : "Save"}
+            </button>
+          </div>
+        </div>
+        <button
+          onClick={handleSignOut}
+          className="w-full py-2.5 px-4 rounded-lg text-sm font-medium text-red-400"
+          style={{ background: "rgba(239,68,68,0.07)", border: "1px solid rgba(239,68,68,0.25)" }}
+        >
+          Sign out
+        </button>
+      </div>
+
       {onboarding && (
         <div className="mb-5 p-4 rounded-xl" style={{ background: "rgba(127,19,236,0.08)", border: "1px solid rgba(127,19,236,0.3)" }}>
           <p className="text-sm text-violet-300 font-medium">Set up your commission structure to start logging sales.</p>

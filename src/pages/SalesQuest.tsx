@@ -132,10 +132,10 @@ const Drawer: FC<DrawerProps> = ({ open, onClose, screen, onNavigate, user, xp, 
         {/* User */}
         <div className="flex items-center gap-3 p-4 border-b" style={{ borderColor: "rgba(127,19,236,0.1)" }}>
           <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-violet-300" style={{ background: "rgba(127,19,236,0.25)", border: "1px solid rgba(127,19,236,0.5)" }}>
-            {user?.email?.[0]?.toUpperCase() || "A"}
+            {(user?.user_metadata?.full_name?.[0] ?? user?.email?.[0] ?? "A").toUpperCase()}
           </div>
           <div>
-            <p className="text-sm font-semibold text-slate-100">{user?.email?.split("@")[0] || "User"}</p>
+            <p className="text-sm font-semibold text-slate-100">{user?.user_metadata?.full_name ?? user?.email?.split("@")[0] ?? "User"}</p>
             <p className="text-xs text-violet-400/70 uppercase tracking-wide">Level {level} · {xp} XP</p>
           </div>
         </div>
@@ -783,7 +783,7 @@ export default function SalesQuest() {
         {/* ── SETTINGS SCREEN ── */}
         {screen === "settings" && (
           <div className="flex-1 mt-2">
-            <SettingsScreen settings={commissionSettings} onSave={handleSaveSettings} onboarding={showOnboarding} />
+            <SettingsScreen settings={commissionSettings} onSave={handleSaveSettings} onboarding={showOnboarding} initialDisplayName={user?.user_metadata?.full_name ?? ""} onToast={showToast} />
           </div>
         )}
 

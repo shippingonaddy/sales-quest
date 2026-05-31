@@ -42,6 +42,53 @@ const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
   );
 };
 
+// ─── Name capture prompt ──────────────────────────────────────────────────────
+
+const NamePrompt: FC<{ onDone: () => void }> = ({ onDone }) => {
+  const [name, setName] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setLoading(true);
+    setError(null);
+    const { error: err } = await supabase.auth.updateUser({ data: { full_name: name.trim() } });
+    setLoading(false);
+    if (err) { setError(err.message); return; }
+    onDone();
+  };
+
+  return (
+    <div className="min-h-screen bg-[#0a0612] flex items-center justify-center px-4">
+      <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-white/5 p-8 backdrop-blur-sm">
+        <h1 className="mb-1 text-xl font-semibold text-slate-100">One quick thing</h1>
+        <p className="mb-6 text-sm text-slate-400">What should we call you?</p>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+          <input
+            type="text"
+            required
+            autoFocus
+            placeholder="Your name"
+            value={name}
+            onChange={e => setName(e.target.value)}
+            className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
+          />
+          {error && <p className="text-xs text-red-400">{error}</p>}
+          <button
+            type="submit"
+            disabled={loading || !name.trim()}
+            className="rounded-lg bg-violet-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-violet-500 disabled:opacity-50"
+          >
+            {loading ? "Saving…" : "Let's go"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+};
+
 // ─── Sign-in overlay ──────────────────────────────────────────────────────────
 
 const SignInOverlay: FC = () => {
@@ -102,9 +149,13 @@ const SignInOverlay: FC = () => {
 
 const AppShell: FC = () => {
   const session = useSession();
+  const [nameSet, setNameSet] = useState(false);
+
+  const hasName = Boolean(session?.user?.user_metadata?.full_name);
 
   // All hooks are above — session null check is safe here (no #310 risk)
   if (!session) return <SignInOverlay />;
+  if (!hasName && !nameSet) return <NamePrompt onDone={() => setNameSet(true)} />;
 
   return (
     <div className="min-h-screen bg-[#0a0612]">
