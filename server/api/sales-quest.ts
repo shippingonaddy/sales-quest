@@ -70,15 +70,14 @@ app.get('/', async (c) => {
     const settingsData = await getSettings(client) ?? {};
 
     const computeCommission = (sale: Sale, cfg: Record<string, unknown>): number => {
-      const snap = (sale.commissionSnapshot ?? cfg) as Record<string, unknown>;
       let base = 0;
-      if (snap.type === "flat")
-        base = (snap.flatAmount as number) ?? 0;
-      else if (snap.type === "flat_plus_down")
-        base = ((snap.flatBase as number) ?? 0) + (sale.downPayment || 0) * (((snap.downPercent as number) ?? 0) / 100);
-      else if (snap.type === "front_back_percent")
-        base = (sale.frontGross || 0) * (((snap.frontendPercent as number) ?? 0) / 100)
-             + (sale.backGross  || 0) * (((snap.backendPercent  as number) ?? 0) / 100);
+      if (cfg.type === "flat")
+        base = (cfg.flatAmount as number) ?? 0;
+      else if (cfg.type === "flat_plus_down")
+        base = ((cfg.flatBase as number) ?? 0) + (sale.downPayment || 0) * (((cfg.downPercent as number) ?? 0) / 100);
+      else if (cfg.type === "front_back_percent")
+        base = (sale.frontGross || 0) * (((cfg.frontendPercent as number) ?? 0) / 100)
+             + (sale.backGross  || 0) * (((cfg.backendPercent  as number) ?? 0) / 100);
       return sale.split ? base / 2 : base;
     };
 
