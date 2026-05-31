@@ -80,12 +80,10 @@ export const SaleModal: FC<SaleModalProps> = ({ mode, sale, initialData, isOpen,
           </div>
 
           {/* Commission fields */}
-          {settings.type === "flat_plus_down" && (
-            <div>
-              <label className="text-xs text-slate-400 uppercase tracking-wide block mb-1.5">Down payment ($)</label>
-              <input type="number" placeholder="0.00" value={formData.downPayment || ""} onChange={e => setFormData(p => ({ ...p, downPayment: Number(e.target.value) }))} className={inp} style={inpStyle} />
-            </div>
-          )}
+          <div>
+            <label className="text-xs text-slate-400 uppercase tracking-wide block mb-1.5">Down payment ($)</label>
+            <input type="number" placeholder="0.00" value={formData.downPayment || ""} onChange={e => setFormData(p => ({ ...p, downPayment: Number(e.target.value) }))} className={inp} style={inpStyle} />
+          </div>
           {settings.type === "front_back_percent" && (
             <div className="grid grid-cols-2 gap-3">
               <div>
