@@ -18,5 +18,6 @@ export const DEFAULT_SETTINGS: CommissionSettings = {
   backendPercent: 0,
   payPeriodType: "biweekly",
   payPeriodStart: "",
+  payPeriodEnd: "",
   configured: false,
 };

@@ -27,6 +27,14 @@ export const createSnapshot = (s: CommissionSettings): CommissionSnapshot => ({
 });
 
 export const getPayPeriodRange = (settings: CommissionSettings): { start: string; end: string; label: string } => {
+  // Explicit window: both start and end set — use directly, no walking
+  if (settings.payPeriodStart && settings.payPeriodEnd) {
+    const fmt = (d: Date) => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    const s = new Date(settings.payPeriodStart + "T00:00:00");
+    const e = new Date(settings.payPeriodEnd + "T00:00:00");
+    return { start: settings.payPeriodStart, end: settings.payPeriodEnd, label: `${fmt(s)} – ${fmt(e)}` };
+  }
+  // No start set — fall back to calendar month
   if (!settings.payPeriodStart) {
     const now = new Date();
     const mStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
@@ -34,6 +42,7 @@ export const getPayPeriodRange = (settings: CommissionSettings): { start: string
     const mEndStr = `${mEnd.getFullYear()}-${String(mEnd.getMonth() + 1).padStart(2, "0")}-${String(mEnd.getDate()).padStart(2, "0")}`;
     return { start: mStart, end: mEndStr, label: "This month" };
   }
+  // Start set but no end — walk forward by period length
   const periodDays = settings.payPeriodType === "weekly" ? 7 : 14;
   const today = new Date();
   let start = new Date(settings.payPeriodStart + "T00:00:00");

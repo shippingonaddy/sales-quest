@@ -52,6 +52,7 @@ export interface CommissionSettings {
   backendPercent: number;
   payPeriodType: "weekly" | "biweekly";
   payPeriodStart: string;
+  payPeriodEnd?: string;
   configured: boolean;
 }
 

@@ -102,6 +102,10 @@ export const SettingsScreen: FC<SettingsScreenProps> = ({ settings, onSave, onbo
         <label className="text-[9px] text-slate-500 uppercase tracking-wide block mb-1">Current period start</label>
         <input type="date" value={local.payPeriodStart || ""} onChange={e => setLocal(p => ({ ...p, payPeriodStart: e.target.value }))} className={inp} style={inpStyle} />
       </div>
+      <div>
+        <label className="text-[9px] text-slate-500 uppercase tracking-wide block mb-1">Current period end</label>
+        <input type="date" value={local.payPeriodEnd || ""} onChange={e => setLocal(p => ({ ...p, payPeriodEnd: e.target.value }))} className={inp} style={inpStyle} />
+      </div>
 
       <p className={secLabel} style={{ marginTop: 20 }}>Preferences</p>
       <div className={row} style={rowStyle}>
