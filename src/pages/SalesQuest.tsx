@@ -31,6 +31,7 @@ import { SettingsScreen } from "../components/SettingsScreen";
 
 import { XP_PER_LEVEL, API_ENDPOINT, SETTINGS_KEY, BONUS_KEY, DEFAULT_SETTINGS } from "../lib/constants";
 import { getLevelTitle } from "../lib/levels";
+import { saveBonus } from "../lib/api-client";
 import { C, RGB, GLASS, hexToRgb } from "../lib/theme";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -405,7 +406,13 @@ export default function SalesQuest() {
         for (const [m, sales] of Object.entries(salesByMonth)) monthsData[m] = { sales, lastActiveDate: ld.lastActiveDate || getLocalDateString(), streak: ld.streak || 0 };
       } else monthsData = { [getCurrentMonth()]: imported };
 
-      if (imported.bonuses) { setBonuses(imported.bonuses); saveBonusesToStorage(imported.bonuses); }
+      if (imported.bonuses) {
+        setBonuses(imported.bonuses);
+        saveBonusesToStorage(imported.bonuses);
+        for (const bonus of imported.bonuses) {
+          await saveBonus(getAuthHeaders, bonus, getCurrentMonth());
+        }
+      }
 
       const current = getCurrentMonth();
       const headers = await getAuthHeaders();
