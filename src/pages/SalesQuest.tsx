@@ -77,7 +77,7 @@ const saveBonusesToStorage = (bonuses: Bonus[]) => {
 };
 
 import {
-  calculateRevenue, createSnapshot,
+  calculateRevenue,
   getPayPeriodRange, calculateXP, getLevel, getXPProgress, getXPRemaining,
 } from "../lib/commission";
 
@@ -336,7 +336,7 @@ export default function SalesQuest() {
   // ─── Sale handlers ──────────────────────────────────────────────────────────
 
   const handleAddSale = (saleInput: Omit<Sale, "id">) => {
-    const fullSale: Sale = { ...saleInput, id: makeId(), commissionSnapshot: createSnapshot(commissionSettings) };
+    const fullSale: Sale = { ...saleInput, id: makeId() };
     saveSalesToCloud([...state.sales, fullSale]);
     setShowAddSale(false);
   };

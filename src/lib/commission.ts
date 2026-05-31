@@ -2,7 +2,7 @@
 // Extracted from SalesQuest.tsx (Phase 0). Pure logic — no JSX, no side effects.
 
 import type { Sale, CommissionSettings, CommissionSnapshot, GameState } from "../types";
-import { DEFAULT_SETTINGS, XP_PER_LEVEL } from "./constants";
+import { XP_PER_LEVEL } from "./constants";
 
 export const computeBase = (sale: Sale, cfg: { type: string; flatAmount: number; flatBase: number; downPercent: number; frontendPercent: number; backendPercent: number }): number => {
   if (cfg.type === "flat") return cfg.flatAmount;
@@ -14,10 +14,7 @@ export const computeBase = (sale: Sale, cfg: { type: string; flatAmount: number;
 };
 
 export const getSaleCommission = (sale: Sale, settings: CommissionSettings): number => {
-  const cfg = sale.commissionSnapshot
-    ? { ...DEFAULT_SETTINGS, ...sale.commissionSnapshot }
-    : settings;
-  const base = computeBase(sale, cfg);
+  const base = computeBase(sale, settings);
   return sale.split ? base / 2 : base;
 };
 
