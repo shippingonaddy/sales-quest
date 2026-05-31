@@ -215,6 +215,15 @@ export default function SalesQuest() {
   const bonusesQuery = useBonusesQuery(getAuthHeaders, selectedMonth, currentMonth, monthEnabled);
   const allTimeTotalQuery = useAllTimeTotalQuery(getAuthHeaders, authEnabled);
 
+  // ─── Adjacent month for cross-boundary pay periods ───────────────────────────
+  // getPayPeriodRange may return a window whose start falls in a prior month.
+  // Compute tentatively here (commissionSettings may still be loading; safe because
+  // getPayPeriodRange always returns a valid object regardless of settings state).
+  const _payPeriodForAdjacentCheck = getPayPeriodRange(commissionSettings);
+  const adjacentMonth = _payPeriodForAdjacentCheck.start.slice(0, 7);
+  const adjacentMonthDiffers = monthEnabled && !!selectedMonth && adjacentMonth !== selectedMonth;
+  const adjacentMonthDataQuery = useMonthDataQuery(getAuthHeaders, adjacentMonth, currentMonth, adjacentMonthDiffers);
+
   const saveMonthMutation = useSaveMonthMutation(getAuthHeaders);
   const saveSettingsMutation = useSaveSettingsMutation(getAuthHeaders);
   const saveBonusMutation = useSaveBonusMutation(getAuthHeaders, currentMonth);
@@ -462,7 +471,11 @@ export default function SalesQuest() {
   const xpRemaining = getXPRemaining(xp);
   const revenue = calculateRevenue(state.sales, commissionSettings);
   const payPeriod = getPayPeriodRange(commissionSettings);
-  const payPeriodRevenue = calculateRevenue(state.sales.filter(s => s.date >= payPeriod.start && s.date <= payPeriod.end), commissionSettings);
+  const payPeriodSales = [
+    ...state.sales,
+    ...(adjacentMonthDiffers ? (adjacentMonthDataQuery.data?.data.sales ?? []) : []),
+  ];
+  const payPeriodRevenue = calculateRevenue(payPeriodSales.filter(s => s.date >= payPeriod.start && s.date <= payPeriod.end), commissionSettings);
   const monthBonuses = bonuses.filter(b => b.date.startsWith(selectedMonth || currentMonth));
   const monthBonusTotal = monthBonuses.reduce((t, b) => t + b.amount, 0);
   const dateGroups = groupSalesByDate(state.sales);
